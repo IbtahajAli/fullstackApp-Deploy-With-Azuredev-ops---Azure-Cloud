@@ -1,0 +1,13 @@
+{
+    "name": "fullstack-app",
+    "version": "1.0.0",
+    "scripts": {
+        "start": "concurrently \"npm run server\" \"npm run client\"",
+        "server": "nodemon backend/server.js",
+        "client": "npm start --prefix frontend"
+    },
+    "devDependencies": {
+        "concurrently": "^8.2.0",
+        "nodemon": "^3.0.1"
+    }
+}
