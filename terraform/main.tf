@@ -1,23 +1,23 @@
 # Resource Group
 resource "azurerm_resource_group" "rg" {
   name     = "devops-rg"
-  location = "East US"
+  location = var.location
 }
 
-# Azure Container Registry (ACR)
+# Azure Container Registry
 resource "azurerm_container_registry" "acr" {
   name                = "devopsacr123"
   resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
+  location            = var.location
   sku                 = "Basic"
   admin_enabled       = true
 }
 
-# Azure Kubernetes Service (AKS)
+# Azure Kubernetes Service
 resource "azurerm_kubernetes_cluster" "aks" {
   name                = "devops-aks"
   resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
+  location            = var.location
   dns_prefix          = "devopsaks"
 
   default_node_pool {
@@ -31,20 +31,20 @@ resource "azurerm_kubernetes_cluster" "aks" {
   }
 }
 
-# Azure SQL Database (for backend persistence)
+# Azure SQL Server + Database
 resource "azurerm_sql_server" "sqlserver" {
   name                         = "devops-sqlserver123"
   resource_group_name          = azurerm_resource_group.rg.name
-  location                     = azurerm_resource_group.rg.location
+  location                     = var.location
   version                      = "12.0"
-  administrator_login          = "sqladmin"
-  administrator_login_password = "P@ssword123!"   # <-- best practice: use pipeline secret
+  administrator_login          = var.sql_admin_login
+  administrator_login_password = var.sql_password
 }
 
 resource "azurerm_sql_database" "sqldb" {
   name                = "devopsdb"
   resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
+  location            = var.location
   server_name         = azurerm_sql_server.sqlserver.name
   sku_name            = "S0"
 }
@@ -53,7 +53,7 @@ resource "azurerm_sql_database" "sqldb" {
 resource "azurerm_virtual_network" "vnet" {
   name                = "devops-vnet"
   address_space       = ["10.0.0.0/16"]
-  location            = azurerm_resource_group.rg.location
+  location            = var.location
   resource_group_name = azurerm_resource_group.rg.name
 }
 

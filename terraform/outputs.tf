@@ -5,3 +5,11 @@ output "acr_login_server" {
 output "aks_cluster_name" {
   value = azurerm_kubernetes_cluster.aks.name
 }
+
+output "sql_server_name" {
+  value = azurerm_sql_server.sqlserver.name
+}
+
+output "sql_database_name" {
+  value = azurerm_sql_database.sqldb.name
+}
