@@ -1,19 +1,36 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
-
 trigger:
 - main
 
 pool:
-  vmImage: ubuntu-latest
+  name: local-pool   # your self-hosted agent pool
 
-steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
+variables:
+  tfVersion: '1.9.0'
+  workingDir: '$(System.DefaultWorkingDirectory)/terraform'
 
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+stages:
+- stage: Terraform
+  jobs:
+  - job: DeployInfra
+    displayName: "Terraform Infrastructure Deployment"
+    steps:
+    # Install Terraform
+    - task: TerraformInstaller@0
+      displayName: "Install Terraform"
+      inputs:
+        terraformVersion: $(tfVersion)
+
+    # Run Terraform commands with Azure authentication
+    - task: AzureCLI@2
+      displayName: "Terraform Init/Validate/Plan/Apply"
+      inputs:
+        azureSubscription: 'azure-rm-terraform'   # your Azure Resource Manager service connection
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        workingDirectory: $(workingDir)
+        inlineScript: |
+          terraform init -input=false
+          terraform fmt -check
+          terraform validate
+          terraform plan -out=tfplan
+          terraform apply -auto-approve tfplan
