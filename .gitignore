@@ -23,3 +23,37 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Ignore agent runtime artifacts
+agent/**/.*
+agent/**/logs/
+agent/**/temp/
+agent/**/config/
+agent/**/work/
+agent/**/externals/
+agent/**/bin/
+agent/**/diagnostics/
+agent/**/*.cmd
+agent/**/*.ps1
+agent/**/*.dll
+agent/**/*.json
+agent/**/*.nuspec
+agent/**/*.svg
+agent/**/*.png
+agent/**/Agent_*
+agent/**/Worker_*
+agent/**/ServiceControl.*
+agent/**/Agent.Listener.exe
+agent/**/Agent.Worker.exe
+agent/**/AgentService.exe
+
+# Terraform state and cache
+*.tfstate
+*.tfstate.*
+.terraform/
+crash.log
+
+# Azure DevOps pipeline logs
+*.log
+*.bak
+*.tmp
