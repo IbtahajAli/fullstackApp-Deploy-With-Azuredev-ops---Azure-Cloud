@@ -1,14 +1,18 @@
 variable "location" {
-  type    = string
-  default = "East US"
+  description = "Azure region"
+  type        = string
+  # CHANGED from "East US" to "East US 2" to bypass the restriction
+  default     = "East US 2"
 }
 
 variable "sql_admin_login" {
-  type    = string
-  default = "sqladmin"
+  description = "SQL admin username"
+  type        = string
+  default     = "sqladmin"
 }
 
 variable "sql_password" {
-  type      = string
-  sensitive = true
+  description = "SQL admin password"
+  type        = string
+  sensitive   = true
 }

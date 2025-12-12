@@ -7,9 +7,9 @@ pool:
 variables:
   tfVersion: '1.9.0'
   workingDir: '$(System.DefaultWorkingDirectory)/terraform'
-  # THESE NAMES MUST MATCH YOUR provider.tf FILE
+  # BACKEND CONFIG (Must match provider.tf)
   bkResourceGroup: 'rg-terraform-backend'
-  bkStorageAccount: 'tfstatedevopsapp123' 
+  bkStorageAccount: 'tfstatedevopsapp123' # Ensure this is unique
   bkContainer: 'tfstate'
   bkLocation: 'eastus'
 
@@ -20,17 +20,17 @@ stages:
     displayName: "Terraform Infrastructure Deployment"
     steps:
     
-    # Step 1: Install Terraform (Downloads terraform.exe to agent)
+    # Step 1: Install Terraform
     - task: TerraformInstaller@0
       displayName: "Install Terraform"
       inputs:
         terraformVersion: $(tfVersion)
 
-    # Step 2: Bootstrap Backend (Auto-Create Storage if missing)
+    # Step 2: Smart Bootstrap (Safe for Re-runs)
     - task: AzureCLI@2
       displayName: "Check & Create Backend Storage"
       inputs:
-        azureSubscription: 'azure-rm-terraform' # Your Service Connection Name
+        azureSubscription: 'azure-rm-terraform'
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
         inlineScript: |
@@ -49,16 +49,22 @@ stages:
              Write-Host "Creating Storage Account: $(bkStorageAccount)"
              az storage account create --name $(bkStorageAccount) --resource-group $(bkResourceGroup) --location $(bkLocation) --sku Standard_LRS
           } else {
-             Write-Host "Storage Account $(bkStorageAccount) already exists (or name taken)."
+             Write-Host "Storage Account $(bkStorageAccount) already exists."
           }
 
-          # 3. Get Key and Create Container
+          # 3. Get Key
           $key = az storage account keys list --resource-group $(bkResourceGroup) --account-name $(bkStorageAccount) --query "[0].value" -o tsv
           
-          # Create container (safe to run even if exists)
-          az storage container create --name $(bkContainer) --account-name $(bkStorageAccount) --account-key $key
+          # 4. Create Container if missing
+          $containerCheck = az storage container exists --name $(bkContainer) --account-name $(bkStorageAccount) --account-key $key | ConvertFrom-Json
+          if ($containerCheck.exists -eq "false") {
+             Write-Host "Creating Container: $(bkContainer)"
+             az storage container create --name $(bkContainer) --account-name $(bkStorageAccount) --account-key $key
+          } else {
+             Write-Host "Container $(bkContainer) already exists."
+          }
 
-          # 4. Pass Key to Next Steps securely
+          # 5. Pass Key to Next Steps
           Write-Host "##vso[task.setvariable variable=ARM_ACCESS_KEY;issecret=true]$key"
 
     # Step 3: Terraform Init
@@ -70,7 +76,6 @@ stages:
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
         inlineScript: |
-          # The ARM_ACCESS_KEY is injected automatically because we set it as a secret variable above
           terraform init -input=false -reconfigure
       env:
         ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
@@ -86,8 +91,8 @@ stages:
         inlineScript: |
           terraform plan -out=tfplan -var "sql_password=$env:SQL_PASS"
       env:
-        SQL_PASS: $(sql_password)     # FROM ADO VARIABLES
-        ARM_ACCESS_KEY: $(ARM_ACCESS_KEY) # FROM BOOTSTRAP STEP
+        SQL_PASS: $(sql_password)
+        ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
 
     # Step 5: Terraform Apply
     - task: AzureCLI@2
