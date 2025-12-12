@@ -6,7 +6,7 @@ resource "azurerm_resource_group" "rg" {
 
 # Azure Container Registry
 resource "azurerm_container_registry" "acr" {
-  name                = "devopsacr123"
+  name                = "devopsacr123" # Must be globally unique
   resource_group_name = azurerm_resource_group.rg.name
   location            = var.location
   sku                 = "Basic"
@@ -31,9 +31,11 @@ resource "azurerm_kubernetes_cluster" "aks" {
   }
 }
 
-# Azure SQL Server + Database
-resource "azurerm_sql_server" "sqlserver" {
-  name                         = "devops-sqlserver123"
+# --- FIXED SQL SECTION ---
+
+# Modern Azure SQL Server
+resource "azurerm_mssql_server" "sqlserver" {
+  name                         = "devops-sqlserver123" # Must be globally unique
   resource_group_name          = azurerm_resource_group.rg.name
   location                     = var.location
   version                      = "12.0"
@@ -41,12 +43,12 @@ resource "azurerm_sql_server" "sqlserver" {
   administrator_login_password = var.sql_password
 }
 
-resource "azurerm_sql_database" "sqldb" {
-  name                = "devopsdb"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = var.location
-  server_name         = azurerm_sql_server.sqlserver.name
-  sku_name            = "S0"
+# Modern Azure SQL Database
+resource "azurerm_mssql_database" "sqldb" {
+  name           = "devopsdb"
+  server_id      = azurerm_mssql_server.sqlserver.id # Note: Uses ID, not Name
+  collation      = "SQL_Latin1_General_CP1_CI_AS"
+  sku_name       = "S0" # This will now work correctly
 }
 
 # Virtual Network + Subnet
@@ -61,5 +63,3 @@ resource "azurerm_subnet" "subnet" {
   name                 = "devops-subnet"
   resource_group_name  = azurerm_resource_group.rg.name
   virtual_network_name = azurerm_virtual_network.vnet.name
-  address_prefixes     = ["10.0.1.0/24"]
-}
