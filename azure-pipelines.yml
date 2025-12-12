@@ -2,7 +2,7 @@ trigger:
 - main
 
 pool:
-  name: local-pool
+  name: local-pool   # your self-hosted agent pool
 
 variables:
   tfVersion: '1.9.0'
@@ -27,8 +27,8 @@ stages:
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
         inlineScript: |
-          Write-Host "Initializing Terraform..."
-          terraform init -input=false
+          Write-Host "Initializing Terraform with reconfigure..."
+          terraform init -input=false -reconfigure
 
           Write-Host "Formatting & validating..."
           terraform fmt -check
