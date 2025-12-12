@@ -13,6 +13,7 @@ terraform {
     storage_account_name = "tfstateacct"
     container_name       = "tfstate"
     key                  = "infra.tfstate"
+    access_key           = var.storage_account_key
   }
 }
 
