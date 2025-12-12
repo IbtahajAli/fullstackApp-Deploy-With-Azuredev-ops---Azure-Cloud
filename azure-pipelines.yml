@@ -37,7 +37,7 @@ stages:
           terraform validate
 
           Write-Host "Planning infrastructure..."
-          terraform plan -out=tfplan -var "sql_password=$(sql_password)"
+          terraform plan -out=tfplan -var "sql_password=$env:sql_password"
 
           Write-Host "Applying infrastructure..."
           terraform apply -auto-approve tfplan
