@@ -10,7 +10,7 @@ terraform {
 
   backend "azurerm" {
     resource_group_name  = "rg-terraform-backend"
-    storage_account_name = "tfstatedevopsapp123" # Must match YAML variable
+    storage_account_name = "tfstatedevopsapp123"
     container_name       = "tfstate"
     key                  = "infra.tfstate"
   }
