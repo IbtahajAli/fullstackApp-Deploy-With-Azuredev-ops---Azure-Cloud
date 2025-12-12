@@ -8,7 +8,6 @@ terraform {
     }
   }
 
-  # Optional: remote backend for shared state
   backend "azurerm" {
     resource_group_name  = "rg-terraform"
     storage_account_name = "tfstateacct"
@@ -19,4 +18,9 @@ terraform {
 
 provider "azurerm" {
   features {}
+
+  subscription_id = var.subscription_id
+  client_id       = var.client_id
+  client_secret   = var.client_secret
+  tenant_id       = var.tenant_id
 }

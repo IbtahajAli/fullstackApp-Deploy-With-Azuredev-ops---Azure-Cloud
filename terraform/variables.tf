@@ -15,3 +15,24 @@ variable "sql_password" {
   type        = string
   sensitive   = true
 }
+
+variable "subscription_id" {
+  description = "Azure subscription ID"
+  type        = string
+}
+
+variable "client_id" {
+  description = "Service Principal app/client ID"
+  type        = string
+}
+
+variable "client_secret" {
+  description = "Service Principal client secret"
+  type        = string
+  sensitive   = true
+}
+
+variable "tenant_id" {
+  description = "Azure tenant ID"
+  type        = string
+}

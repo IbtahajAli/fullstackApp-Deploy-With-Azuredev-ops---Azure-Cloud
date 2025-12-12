@@ -46,7 +46,12 @@ stages:
           terraform validate
 
           Write-Host "Planning infrastructure..."
-          terraform plan -out=tfplan -var "sql_password=$env:sql_password"
+          terraform plan -out=tfplan `
+            -var "sql_password=$env:sql_password" `
+            -var "subscription_id=$env:subscription_id" `
+            -var "client_id=$env:client_id" `
+            -var "client_secret=$env:client_secret" `
+            -var "tenant_id=$env:tenant_id"
 
     # Step 3: Apply
     - task: AzureCLI@2
