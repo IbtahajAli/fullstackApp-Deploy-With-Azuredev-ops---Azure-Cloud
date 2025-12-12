@@ -14,13 +14,15 @@ stages:
   - job: DeployInfra
     displayName: "Terraform Infrastructure Deployment"
     steps:
+    # Install Terraform
     - task: TerraformInstaller@0
       displayName: "Install Terraform"
       inputs:
         terraformVersion: $(tfVersion)
 
+    # Step 1: Init
     - task: AzureCLI@2
-      displayName: "Terraform Init/Validate/Plan"
+      displayName: "Terraform Init"
       inputs:
         azureSubscription: 'azure-rm-terraform'
         scriptType: 'ps'
@@ -30,6 +32,15 @@ stages:
           Write-Host "Initializing Terraform with reconfigure..."
           terraform init -input=false -reconfigure
 
+    # Step 2: Plan
+    - task: AzureCLI@2
+      displayName: "Terraform Plan"
+      inputs:
+        azureSubscription: 'azure-rm-terraform'
+        scriptType: 'ps'
+        scriptLocation: 'inlineScript'
+        workingDirectory: $(workingDir)
+        inlineScript: |
           Write-Host "Formatting & validating..."
           terraform fmt -check
           terraform validate
@@ -37,6 +48,7 @@ stages:
           Write-Host "Planning infrastructure..."
           terraform plan -out=tfplan -var "sql_password=$env:sql_password"
 
+    # Step 3: Apply
     - task: AzureCLI@2
       displayName: "Terraform Apply"
       inputs:
