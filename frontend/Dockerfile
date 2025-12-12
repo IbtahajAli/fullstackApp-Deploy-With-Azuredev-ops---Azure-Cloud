@@ -5,9 +5,9 @@ COPY package*.json ./
 RUN npm install
 COPY . .
 
-# ARG allows us to pass variables during the Docker build
+# DEFINING THE BUILD ARGUMENT
 ARG REACT_APP_API_URL
-# ENV sets it so React build process can see it
+# SETTING IT AS ENVIRONMENT VARIABLE FOR REACT
 ENV REACT_APP_API_URL=$REACT_APP_API_URL
 
 RUN npm run build
