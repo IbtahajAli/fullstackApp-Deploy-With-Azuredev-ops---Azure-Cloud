@@ -14,13 +14,12 @@ stages:
   - job: DeployInfra
     displayName: "Terraform Infrastructure Deployment"
     steps:
-    # Install Terraform
     - task: TerraformInstaller@0
       displayName: "Install Terraform"
       inputs:
         terraformVersion: $(tfVersion)
 
-    # Step 1: Init
+    # Step 1: Init (backend requires ARM_* env vars)
     - task: AzureCLI@2
       displayName: "Terraform Init"
       inputs:
@@ -31,6 +30,11 @@ stages:
         inlineScript: |
           Write-Host "Initializing Terraform with reconfigure..."
           terraform init -input=false -reconfigure
+      env:
+        ARM_SUBSCRIPTION_ID: $(subscription_id)
+        ARM_TENANT_ID: $(tenant_id)
+        ARM_CLIENT_ID: $(client_id)
+        ARM_CLIENT_SECRET: $(client_secret)
 
     # Step 2: Plan
     - task: AzureCLI@2
@@ -52,6 +56,11 @@ stages:
             -var "client_id=$env:client_id" `
             -var "client_secret=$env:client_secret" `
             -var "tenant_id=$env:tenant_id"
+      env:
+        ARM_SUBSCRIPTION_ID: $(subscription_id)
+        ARM_TENANT_ID: $(tenant_id)
+        ARM_CLIENT_ID: $(client_id)
+        ARM_CLIENT_SECRET: $(client_secret)
 
     # Step 3: Apply
     - task: AzureCLI@2
@@ -64,3 +73,8 @@ stages:
         inlineScript: |
           Write-Host "Applying infrastructure..."
           terraform apply -auto-approve tfplan
+      env:
+        ARM_SUBSCRIPTION_ID: $(subscription_id)
+        ARM_TENANT_ID: $(tenant_id)
+        ARM_CLIENT_ID: $(client_id)
+        ARM_CLIENT_SECRET: $(client_secret)
