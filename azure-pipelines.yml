@@ -2,31 +2,46 @@ trigger:
 - main
 
 pool:
-  name: local-pool
+  name: local-pool # Using your self-hosted agent for all stages
 
 variables:
+  # --- TERRAFORM VARIABLES ---
   tfVersion: '1.9.0'
   workingDir: '$(System.DefaultWorkingDirectory)/terraform'
-  # BACKEND CONFIG (Must match provider.tf)
   bkResourceGroup: 'rg-terraform-backend'
-  bkStorageAccount: 'tfstatedevopsapp123' # Ensure this is unique
+  bkStorageAccount: 'tfstatedevopsapp123'
   bkContainer: 'tfstate'
   bkLocation: 'eastus'
+  
+  # --- APP & DEPLOY VARIABLES ---
+  # Based on your Terraform main.tf
+  acrLoginServer: 'devopsacr123.azurecr.io' 
+  
+  # Service Connection Names (Created in ADO Project Settings)
+  acrServiceConnection: 'acr-connection'            # Select Docker Registry -> Azure Container Registry
+  aksServiceConnection: 'aks-connection'            # Select Kubernetes -> Azure Subscription
+  sonarServiceConnection: 'sonarqube-local-connection' # The one we just named above
+  
+  # Image Config
+  backendImageName: 'backend-app'
+  frontendImageName: 'frontend-app'
+  tag: '$(Build.BuildId)'
 
 stages:
+# ----------------------------
+# STAGE 1: INFRASTRUCTURE (Terraform)
+# ----------------------------
 - stage: Terraform
+  displayName: "Infrastructure"
   jobs:
   - job: DeployInfra
-    displayName: "Terraform Infrastructure Deployment"
+    displayName: "Terraform Apply"
     steps:
-    
-    # Step 1: Install Terraform
     - task: TerraformInstaller@0
       displayName: "Install Terraform"
       inputs:
         terraformVersion: $(tfVersion)
 
-    # Step 2: Smart Bootstrap (Safe for Re-runs)
     - task: AzureCLI@2
       displayName: "Check & Create Backend Storage"
       inputs:
@@ -34,40 +49,19 @@ stages:
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
         inlineScript: |
-          # 1. Create Resource Group if missing
           $rgExists = az group exists --name $(bkResourceGroup)
-          if ($rgExists -eq "false") {
-            Write-Host "Creating Resource Group: $(bkResourceGroup)"
-            az group create --name $(bkResourceGroup) --location $(bkLocation)
-          } else {
-            Write-Host "Resource Group $(bkResourceGroup) already exists."
-          }
-
-          # 2. Create Storage Account if missing
+          if ($rgExists -eq "false") { az group create --name $(bkResourceGroup) --location $(bkLocation) }
+          
           $accExists = az storage account check-name --name $(bkStorageAccount) | ConvertFrom-Json
-          if ($accExists.nameAvailable -eq $true) {
-             Write-Host "Creating Storage Account: $(bkStorageAccount)"
-             az storage account create --name $(bkStorageAccount) --resource-group $(bkResourceGroup) --location $(bkLocation) --sku Standard_LRS
-          } else {
-             Write-Host "Storage Account $(bkStorageAccount) already exists."
-          }
-
-          # 3. Get Key
+          if ($accExists.nameAvailable -eq $true) { az storage account create --name $(bkStorageAccount) --resource-group $(bkResourceGroup) --location $(bkLocation) --sku Standard_LRS }
+          
           $key = az storage account keys list --resource-group $(bkResourceGroup) --account-name $(bkStorageAccount) --query "[0].value" -o tsv
           
-          # 4. Create Container if missing
           $containerCheck = az storage container exists --name $(bkContainer) --account-name $(bkStorageAccount) --account-key $key | ConvertFrom-Json
-          if ($containerCheck.exists -eq "false") {
-             Write-Host "Creating Container: $(bkContainer)"
-             az storage container create --name $(bkContainer) --account-name $(bkStorageAccount) --account-key $key
-          } else {
-             Write-Host "Container $(bkContainer) already exists."
-          }
-
-          # 5. Pass Key to Next Steps
+          if ($containerCheck.exists -eq "false") { az storage container create --name $(bkContainer) --account-name $(bkStorageAccount) --account-key $key }
+          
           Write-Host "##vso[task.setvariable variable=ARM_ACCESS_KEY;issecret=true]$key"
 
-    # Step 3: Terraform Init
     - task: AzureCLI@2
       displayName: "Terraform Init"
       inputs:
@@ -75,12 +69,10 @@ stages:
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
-        inlineScript: |
-          terraform init -input=false -reconfigure
+        inlineScript: terraform init -input=false -reconfigure
       env:
         ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
 
-    # Step 4: Terraform Plan
     - task: AzureCLI@2
       displayName: "Terraform Plan"
       inputs:
@@ -88,13 +80,11 @@ stages:
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
-        inlineScript: |
-          terraform plan -out=tfplan -var "sql_password=$env:SQL_PASS"
+        inlineScript: terraform plan -out=tfplan -var "sql_password=$env:SQL_PASS"
       env:
         SQL_PASS: $(sql_password)
         ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
 
-    # Step 5: Terraform Apply
     - task: AzureCLI@2
       displayName: "Terraform Apply"
       inputs:
@@ -102,7 +92,97 @@ stages:
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
-        inlineScript: |
-          terraform apply -auto-approve tfplan
+        inlineScript: terraform apply -auto-approve tfplan
       env:
         ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
+
+# ----------------------------
+# STAGE 2: CODE QUALITY (SonarQube)
+# ----------------------------
+- stage: CodeQuality
+  displayName: "SonarQube Scan"
+  dependsOn: Terraform
+  condition: succeeded()
+  jobs:
+  - job: SonarScan
+    displayName: "Analyze Code"
+    steps:
+    - task: SonarQubePrepare@5
+      inputs:
+        SonarQube: '$(sonarServiceConnection)'
+        scannerMode: 'CLI'
+        configMode: 'manual'
+        cliProjectKey: 'my-devops-app' # Set this key in your SonarQube UI
+        cliProjectName: 'My DevOps App'
+        extraProperties: |
+          sonar.sources=frontend,backend
+          sonar.exclusions=**/node_modules/**,**/build/**,**/dist/**
+
+    - task: SonarQubeAnalyze@5
+      displayName: "Run Code Analysis"
+
+    - task: SonarQubePublish@5
+      displayName: "Publish Quality Gate"
+      inputs:
+        pollingTimeoutSec: '300'
+
+# ----------------------------
+# STAGE 3: BUILD & PUSH (Docker)
+# ----------------------------
+- stage: BuildAndPush
+  displayName: "Build Docker Images"
+  dependsOn: CodeQuality
+  condition: succeeded()
+  jobs:
+  - job: BuildImages
+    displayName: "Build & Push"
+    steps:
+    - task: Docker@2
+      displayName: "Build Backend"
+      inputs:
+        command: buildAndPush
+        repository: $(backendImageName)
+        dockerfile: 'backend/Dockerfile'
+        containerRegistry: $(acrServiceConnection)
+        tags: |
+          $(tag)
+          latest
+
+    - task: Docker@2
+      displayName: "Build Frontend"
+      inputs:
+        command: buildAndPush
+        repository: $(frontendImageName)
+        dockerfile: 'frontend/Dockerfile'
+        containerRegistry: $(acrServiceConnection)
+        tags: |
+          $(tag)
+          latest
+
+# ----------------------------
+# STAGE 4: DEPLOY (AKS)
+# ----------------------------
+- stage: Deploy
+  displayName: "Deploy to AKS"
+  dependsOn: BuildAndPush
+  condition: succeeded()
+  jobs:
+  - deployment: DeployAKS
+    displayName: "Deploy Manifests"
+    environment: 'production'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - task: KubernetesManifest@0
+              displayName: "Apply Manifests"
+              inputs:
+                action: 'deploy'
+                kubernetesServiceConnection: $(aksServiceConnection)
+                namespace: 'default'
+                manifests: |
+                  $(System.DefaultWorkingDirectory)/manifests/deployment.yml
+                  $(System.DefaultWorkingDirectory)/manifests/service.yml
+                containers: |
+                  $(acrLoginServer)/$(backendImageName):$(tag)
+                  $(acrLoginServer)/$(frontendImageName):$(tag)

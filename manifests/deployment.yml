@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: backend
+        image: devopsacr123.azurecr.io/backend-app:latest
+        ports:
+        - containerPort: 5000
+        env:
+        - name: DB_SERVER
+          value: "devops-sql-app-001.database.windows.net"
+        - name: DB_NAME
+          value: "devopsdb"
+        - name: DB_USER
+          value: "sqladmin"
+        # Ideally, DB_PASSWORD should be a k8s secret, but for now:
+        - name: DB_PASSWORD 
+          value: "YourSqlPassword123!" 
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: frontend
+        image: devopsacr123.azurecr.io/frontend-app:latest
+        ports:
+        - containerPort: 80
