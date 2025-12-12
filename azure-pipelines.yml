@@ -24,13 +24,20 @@ stages:
     - task: AzureCLI@2
       displayName: "Terraform Init/Validate/Plan/Apply"
       inputs:
-        azureSubscription: 'azure-rm-terraform'   # your Azure Resource Manager service connection
-        scriptType: 'bash'
+        azureSubscription: 'azure-rm-terraform'   # Azure Resource Manager service connection
+        scriptType: 'ps'                          # Use PowerShell on Windows agent
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
         inlineScript: |
+          Write-Host "Initializing Terraform..."
           terraform init -input=false
+
+          Write-Host "Formatting & validating..."
           terraform fmt -check
           terraform validate
-          terraform plan -out=tfplan
+
+          Write-Host "Planning infrastructure..."
+          terraform plan -out=tfplan -var "sql_password=$env:sql_password"
+
+          Write-Host "Applying infrastructure..."
           terraform apply -auto-approve tfplan
