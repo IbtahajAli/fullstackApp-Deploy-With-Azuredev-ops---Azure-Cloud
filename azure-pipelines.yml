@@ -2,7 +2,7 @@ trigger:
 - main
 
 pool:
-  name: local-pool   # your self-hosted agent pool
+  name: local-pool
 
 variables:
   tfVersion: '1.9.0'
@@ -14,18 +14,16 @@ stages:
   - job: DeployInfra
     displayName: "Terraform Infrastructure Deployment"
     steps:
-    # Install Terraform
     - task: TerraformInstaller@0
       displayName: "Install Terraform"
       inputs:
         terraformVersion: $(tfVersion)
 
-    # Run Terraform commands with Azure authentication
     - task: AzureCLI@2
-      displayName: "Terraform Init/Validate/Plan/Apply"
+      displayName: "Terraform Init/Validate/Plan"
       inputs:
-        azureSubscription: 'azure-rm-terraform'   # Azure Resource Manager service connection
-        scriptType: 'ps'                          # Use PowerShell on Windows agent
+        azureSubscription: 'azure-rm-terraform'
+        scriptType: 'ps'
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
         inlineScript: |
@@ -39,5 +37,13 @@ stages:
           Write-Host "Planning infrastructure..."
           terraform plan -out=tfplan -var "sql_password=$env:sql_password"
 
+    - task: AzureCLI@2
+      displayName: "Terraform Apply"
+      inputs:
+        azureSubscription: 'azure-rm-terraform'
+        scriptType: 'ps'
+        scriptLocation: 'inlineScript'
+        workingDirectory: $(workingDir)
+        inlineScript: |
           Write-Host "Applying infrastructure..."
           terraform apply -auto-approve tfplan
