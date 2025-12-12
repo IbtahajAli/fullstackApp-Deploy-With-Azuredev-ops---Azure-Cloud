@@ -16,14 +16,6 @@ variable "sql_password" {
   sensitive   = true
 }
 
-# Backend storage account key
-variable "storage_account_key" {
-  description = "Access key for the tfstate storage account"
-  type        = string
-  sensitive   = true
-}
-
-# Service Principal credentials for provider
 variable "subscription_id" {
   description = "Azure subscription ID"
   type        = string
