@@ -1,7 +1,8 @@
 variable "location" {
   description = "Azure region"
   type        = string
-  default     = "East US"
+  # CHANGED from "East US" to "East US 2" to bypass the restriction
+  default     = "East US 2"
 }
 
 variable "sql_admin_login" {
