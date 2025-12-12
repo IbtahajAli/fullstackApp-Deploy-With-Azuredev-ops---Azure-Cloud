@@ -6,7 +6,7 @@ resource "azurerm_resource_group" "rg" {
 
 # Azure Container Registry
 resource "azurerm_container_registry" "acr" {
-  name                = "devopsacr123" # Make sure this is unique
+  name                = "devopsacr123" # Must be unique
   resource_group_name = azurerm_resource_group.rg.name
   location            = var.location
   sku                 = "Basic"
@@ -33,7 +33,8 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
 # Modern Azure SQL Server (mssql)
 resource "azurerm_mssql_server" "sqlserver" {
-  name                         = "devops-sqlserver123" # Make sure this is unique
+  # CHANGED NAME TO ENSURE UNIQUENESS
+  name                         = "devops-sql-app-001" 
   resource_group_name          = azurerm_resource_group.rg.name
   location                     = var.location
   version                      = "12.0"
