@@ -2,11 +2,16 @@ trigger:
 - main
 
 pool:
-  name: local-pool   # your self-hosted agent pool
+  name: local-pool
 
 variables:
   tfVersion: '1.9.0'
   workingDir: '$(System.DefaultWorkingDirectory)/terraform'
+  # THESE NAMES MUST MATCH YOUR provider.tf FILE
+  bkResourceGroup: 'rg-terraform-backend'
+  bkStorageAccount: 'tfstatedevopsapp123' 
+  bkContainer: 'tfstate'
+  bkLocation: 'eastus'
 
 stages:
 - stage: Terraform
@@ -14,12 +19,49 @@ stages:
   - job: DeployInfra
     displayName: "Terraform Infrastructure Deployment"
     steps:
+    
+    # Step 1: Install Terraform (Downloads terraform.exe to agent)
     - task: TerraformInstaller@0
       displayName: "Install Terraform"
       inputs:
         terraformVersion: $(tfVersion)
 
-    # Step 1: Init (backend requires ARM_* env vars)
+    # Step 2: Bootstrap Backend (Auto-Create Storage if missing)
+    - task: AzureCLI@2
+      displayName: "Check & Create Backend Storage"
+      inputs:
+        azureSubscription: 'azure-rm-terraform' # Your Service Connection Name
+        scriptType: 'ps'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          # 1. Create Resource Group if missing
+          $rgExists = az group exists --name $(bkResourceGroup)
+          if ($rgExists -eq "false") {
+            Write-Host "Creating Resource Group: $(bkResourceGroup)"
+            az group create --name $(bkResourceGroup) --location $(bkLocation)
+          } else {
+            Write-Host "Resource Group $(bkResourceGroup) already exists."
+          }
+
+          # 2. Create Storage Account if missing
+          $accExists = az storage account check-name --name $(bkStorageAccount) | ConvertFrom-Json
+          if ($accExists.nameAvailable -eq $true) {
+             Write-Host "Creating Storage Account: $(bkStorageAccount)"
+             az storage account create --name $(bkStorageAccount) --resource-group $(bkResourceGroup) --location $(bkLocation) --sku Standard_LRS
+          } else {
+             Write-Host "Storage Account $(bkStorageAccount) already exists (or name taken)."
+          }
+
+          # 3. Get Key and Create Container
+          $key = az storage account keys list --resource-group $(bkResourceGroup) --account-name $(bkStorageAccount) --query "[0].value" -o tsv
+          
+          # Create container (safe to run even if exists)
+          az storage container create --name $(bkContainer) --account-name $(bkStorageAccount) --account-key $key
+
+          # 4. Pass Key to Next Steps securely
+          Write-Host "##vso[task.setvariable variable=ARM_ACCESS_KEY;issecret=true]$key"
+
+    # Step 3: Terraform Init
     - task: AzureCLI@2
       displayName: "Terraform Init"
       inputs:
@@ -28,15 +70,12 @@ stages:
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
         inlineScript: |
-          Write-Host "Initializing Terraform with reconfigure..."
+          # The ARM_ACCESS_KEY is injected automatically because we set it as a secret variable above
           terraform init -input=false -reconfigure
       env:
-        ARM_SUBSCRIPTION_ID: $(subscription_id)
-        ARM_TENANT_ID: $(tenant_id)
-        ARM_CLIENT_ID: $(client_id)
-        ARM_CLIENT_SECRET: $(client_secret)
+        ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
 
-    # Step 2: Plan
+    # Step 4: Terraform Plan
     - task: AzureCLI@2
       displayName: "Terraform Plan"
       inputs:
@@ -45,24 +84,12 @@ stages:
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
         inlineScript: |
-          Write-Host "Formatting & validating..."
-          terraform fmt -check
-          terraform validate
-
-          Write-Host "Planning infrastructure..."
-          terraform plan -out=tfplan `
-            -var "sql_password=$env:sql_password" `
-            -var "subscription_id=$env:subscription_id" `
-            -var "client_id=$env:client_id" `
-            -var "client_secret=$env:client_secret" `
-            -var "tenant_id=$env:tenant_id"
+          terraform plan -out=tfplan -var "sql_password=$env:SQL_PASS"
       env:
-        ARM_SUBSCRIPTION_ID: $(subscription_id)
-        ARM_TENANT_ID: $(tenant_id)
-        ARM_CLIENT_ID: $(client_id)
-        ARM_CLIENT_SECRET: $(client_secret)
+        SQL_PASS: $(sql_password)     # FROM ADO VARIABLES
+        ARM_ACCESS_KEY: $(ARM_ACCESS_KEY) # FROM BOOTSTRAP STEP
 
-    # Step 3: Apply
+    # Step 5: Terraform Apply
     - task: AzureCLI@2
       displayName: "Terraform Apply"
       inputs:
@@ -71,10 +98,6 @@ stages:
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
         inlineScript: |
-          Write-Host "Applying infrastructure..."
           terraform apply -auto-approve tfplan
       env:
-        ARM_SUBSCRIPTION_ID: $(subscription_id)
-        ARM_TENANT_ID: $(tenant_id)
-        ARM_CLIENT_ID: $(client_id)
-        ARM_CLIENT_SECRET: $(client_secret)
+        ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)

@@ -7,9 +7,9 @@ output "aks_cluster_name" {
 }
 
 output "sql_server_name" {
-  value = azurerm_sql_server.sqlserver.name
+  value = azurerm_mssql_server.sqlserver.name
 }
 
 output "sql_database_name" {
-  value = azurerm_sql_database.sqldb.name
+  value = azurerm_mssql_database.sqldb.name
 }
