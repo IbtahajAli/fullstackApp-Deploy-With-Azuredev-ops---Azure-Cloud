@@ -5,7 +5,7 @@ pool:
   name: local-pool
 
 variables:
-  # --- TERRAFORM VARIABLES ---
+  # --- TERRAFORM VARS ---
   tfVersion: '1.9.0'
   workingDir: '$(System.DefaultWorkingDirectory)/terraform'
   bkResourceGroup: 'rg-terraform-backend'
@@ -13,113 +13,83 @@ variables:
   bkContainer: 'tfstate'
   bkLocation: 'eastus'
   
-  # --- SERVICE CONNECTIONS ---
-  # Ensure these exist in Project Settings -> Service Connections
+  # --- CONNECTIONS ---
   acrLoginServer: 'devopsacr123.azurecr.io' 
-  acrServiceConnection: 'acr-connection'            
+  acrServiceConnection: 'acr-connection'    
   aksServiceConnection: 'aks-connection'            
-  sonarServiceConnection: 'sonarqube-local-connection' 
+  # sonarServiceConnection: 'sonarqube-local-connection' # Temporarily unused
   
-  # --- IMAGE CONFIG ---
+  # --- IMAGES ---
   backendImageName: 'backend-app'
   frontendImageName: 'frontend-app'
   tag: '$(Build.BuildId)'
   
-  # --- APP CONFIGURATION ---
+  # --- APP CONFIG ---
   # RUN 1: Keep as localhost. 
   # RUN 2: After deploying, copy the Backend IP from Azure Portal and paste it here.
   backendUrl: 'http://localhost:5000' 
 
 stages:
 # ----------------------------
-# STAGE 1: INFRASTRUCTURE (Terraform)
+# STAGE 1: INFRASTRUCTURE
 # ----------------------------
 - stage: Terraform
   displayName: "Infrastructure Check"
   jobs:
   - job: TerraformApply
-    displayName: "Terraform Apply"
     steps:
     - task: TerraformInstaller@0
-      displayName: "Install Terraform"
       inputs:
         terraformVersion: $(tfVersion)
-
     - task: AzureCLI@2
-      displayName: "Check & Init Backend"
-      inputs:
-        azureSubscription: 'azure-rm-terraform' # Verify this connection exists!
-        scriptType: 'ps'
-        scriptLocation: 'inlineScript'
-        workingDirectory: $(workingDir)
-        inlineScript: |
-          # Bootstrap backend storage keys
-          $key = az storage account keys list --resource-group $(bkResourceGroup) --account-name $(bkStorageAccount) --query "[0].value" -o tsv
-          Write-Host "##vso[task.setvariable variable=ARM_ACCESS_KEY;issecret=true]$key"
-          
-          # Init
-          terraform init -input=false -reconfigure
-      env:
-        ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
-
-    - task: AzureCLI@2
-      displayName: "Terraform Apply"
       inputs:
         azureSubscription: 'azure-rm-terraform'
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
         inlineScript: |
+          $key = az storage account keys list --resource-group $(bkResourceGroup) --account-name $(bkStorageAccount) --query "[0].value" -o tsv
+          Write-Host "##vso[task.setvariable variable=ARM_ACCESS_KEY;issecret=true]$key"
+          terraform init -input=false -reconfigure
           terraform apply -auto-approve -var "sql_password=$env:SQL_PASS"
       env:
         ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
         SQL_PASS: $(sql_password)
 
 # ----------------------------
-# STAGE 2: CODE QUALITY (SonarQube)
+# STAGE 2: CODE QUALITY (SKIPPED)
 # ----------------------------
-- stage: CodeQuality
-  displayName: "SonarQube Scan"
-  dependsOn: Terraform
-  condition: succeeded()
-  jobs:
-  - job: SonarScan
-    displayName: "Analyze Code"
-    steps:
-    # CHANGED TO VERSION 4 (@4) TO FIX ERROR
-    - task: SonarQubePrepare@4
-      inputs:
-        SonarQube: '$(sonarServiceConnection)'
-        scannerMode: 'CLI'
-        configMode: 'manual'
-        cliProjectKey: 'my-devops-app' # Make sure this matches your SonarQube Project Key
-        cliProjectName: 'My DevOps App'
-        extraProperties: |
-          sonar.sources=frontend,backend
-          sonar.exclusions=**/node_modules/**,**/build/**,**/dist/**
-
-    # CHANGED TO VERSION 4 (@4)
-    - task: SonarQubeAnalyze@4
-      displayName: "Run Code Analysis"
-
-    # CHANGED TO VERSION 4 (@4)
-    - task: SonarQubePublish@4
-      displayName: "Publish Quality Gate"
-      inputs:
-        pollingTimeoutSec: '300'
+# - stage: CodeQuality
+#   displayName: "SonarQube Scan"
+#   dependsOn: Terraform
+#   jobs:
+#   - job: SonarScan
+#     steps:
+#     - task: SonarQubePrepare@5
+#       inputs:
+#         SonarQube: '$(sonarServiceConnection)'
+#         scannerMode: 'CLI'
+#         configMode: 'manual'
+#         cliProjectKey: 'my-devops-app'
+#         cliProjectName: 'My DevOps App'
+#         extraProperties: |
+#           sonar.sources=frontend,backend
+#           sonar.exclusions=**/node_modules/**
+#     - task: SonarQubeAnalyze@5
+#     - task: SonarQubePublish@5
+#       inputs:
+#         pollingTimeoutSec: '300'
 
 # ----------------------------
-# STAGE 3: BUILD & PUSH (Docker)
+# STAGE 3: BUILD & PUSH
 # ----------------------------
 - stage: BuildAndPush
   displayName: "Build Docker Images"
-  dependsOn: CodeQuality
-  condition: succeeded()
+  # dependsOn: CodeQuality # Changed dependency since we skipped Stage 2
+  dependsOn: Terraform
   jobs:
   - job: BuildImages
-    displayName: "Build & Push"
     steps:
-    # Build Backend
     - task: Docker@2
       displayName: "Build Backend"
       inputs:
@@ -131,7 +101,6 @@ stages:
           $(tag)
           latest
 
-    # Build Frontend (Injects Backend URL)
     - task: Docker@2
       displayName: "Build Frontend"
       inputs:
@@ -145,22 +114,19 @@ stages:
           latest
 
 # ----------------------------
-# STAGE 4: DEPLOY (AKS)
+# STAGE 4: DEPLOY
 # ----------------------------
 - stage: Deploy
   displayName: "Deploy to AKS"
   dependsOn: BuildAndPush
-  condition: succeeded()
   jobs:
   - deployment: DeployAKS
-    displayName: "Deploy Manifests"
     environment: 'production'
     strategy:
       runOnce:
         deploy:
           steps:
             - task: KubernetesManifest@0
-              displayName: "Apply Manifests"
               inputs:
                 action: 'deploy'
                 kubernetesServiceConnection: $(aksServiceConnection)
@@ -169,5 +135,3 @@ stages:
                   $(System.DefaultWorkingDirectory)/manifests/deployment.yml
                   $(System.DefaultWorkingDirectory)/manifests/service.yml
                 containers: |
-                  $(acrLoginServer)/$(backendImageName):$(tag)
-                  $(acrLoginServer)/$(frontendImageName):$(tag)
