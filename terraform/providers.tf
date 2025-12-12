@@ -9,8 +9,8 @@ terraform {
   }
 
   backend "azurerm" {
-    resource_group_name  = "rg-terraform"
-    storage_account_name = "tfstateacct"
+    resource_group_name  = "rg-terraform-backend"
+    storage_account_name = "tfstatedevopsapp123" # Must match YAML variable
     container_name       = "tfstate"
     key                  = "infra.tfstate"
   }
@@ -18,5 +18,4 @@ terraform {
 
 provider "azurerm" {
   features {}
-  # Credentials are now inherited from the Azure DevOps Service Connection
 }
