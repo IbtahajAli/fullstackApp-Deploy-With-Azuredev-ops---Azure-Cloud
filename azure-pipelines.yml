@@ -113,18 +113,19 @@ stages:
   - job: SonarScan
     displayName: "Run SonarScanner CLI"
     pool:
-      name: local-pool   # your self-hosted Windows agent pool
+      name: local-pool   # same agent pool
     steps:
     - task: PowerShell@2
       displayName: "Run SonarScanner"
       inputs:
         targetType: 'inline'
         script: |
+          cd D:\GitHub\fullstackApp-Deploy-With-Azuredev-ops---Azure-Cloud
           & "C:\sonar-scanner\bin\sonar-scanner.bat" `
             -Dsonar.projectKey=FullStackApp `
             -Dsonar.projectName=FullStackApp `
             -Dsonar.host.url=http://localhost:9000 `
-            -Dsonar.token=$env:sonarToken `
+            -Dsonar.token=$(sonarToken) `
             -Dsonar.sources=frontend,backend `
             -Dsonar.exclusions=**/node_modules/**,**/build/**,**/dist/**
 
