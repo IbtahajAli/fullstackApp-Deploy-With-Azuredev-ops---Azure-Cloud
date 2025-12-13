@@ -106,35 +106,33 @@ stages:
 # ----------------------------
 # STAGE 2: SONARQUBE (VIA DOCKER ON WINDOWS)
 # ----------------------------
+
 # ----------------------------
-# STAGE 2: SONARQUBE (VIA DOCKER ON WINDOWS)
+# STAGE 2: SONARQUBE
 # ----------------------------
 - stage: SonarQube
   displayName: "SonarQube Analysis"
   dependsOn: Terraform
-  condition: succeeded()
   jobs:
   - job: SonarScan
-    displayName: "Run SonarScanner via Docker"
+    displayName: "Run SonarQube Analysis"
     pool:
-      name: local-pool   # Windows self-hosted agent with Docker installed
+      vmImage: 'windows-latest'   # or your agent pool
     steps:
-    - task: PowerShell@2
-      displayName: "Execute Sonar Scanner"
+    - task: SonarQubePrepare@8
       inputs:
-        targetType: 'inline'
-        script: |
-          Write-Host "Running SonarQube Scanner using Docker..."
-
-          docker run --rm `
-            -v "$(System.DefaultWorkingDirectory):/usr/src" `
-            -e SONAR_HOST_URL="http://host.docker.internal:9000" `
-            -e SONAR_TOKEN="$env:sonarToken" `
-            sonarsource/sonar-scanner-cli `
-            "-Dsonar.projectKey=FullStackApp" `
-            "-Dsonar.projectName=FullStackApp" `
-            "-Dsonar.sources=frontend,backend" `
-            "-Dsonar.exclusions=**/node_modules/**,**/build/**,**/dist/**"
+        SonarQube: '$(sonarServiceConnection)'
+        scannerMode: 'CLI'
+        configMode: 'manual'
+        cliProjectKey: 'FullStackApp'
+        cliProjectName: 'FullStackApp'
+        extraProperties: |
+          sonar.sources=frontend,backend
+          sonar.exclusions=**/node_modules/**,**/build/**,**/dist/**
+    - task: SonarQubeAnalyze@8
+    - task: SonarQubePublish@8
+      inputs:
+        pollingTimeoutSec: '300'
 
 # ----------------------------
 # STAGE 3: SECURITY (Snyk/Trivy FS)
