@@ -113,7 +113,7 @@ stages:
   - job: SonarScan
     displayName: "Run SonarScanner CLI"
     pool:
-      name: local-pool   # same agent pool
+      name: local-pool   # your self-hosted Windows agent pool
     steps:
     - task: PowerShell@2
       displayName: "Run SonarScanner"
@@ -122,12 +122,12 @@ stages:
         script: |
           cd D:\GitHub\fullstackApp-Deploy-With-Azuredev-ops---Azure-Cloud
           & "C:\sonar-scanner\bin\sonar-scanner.bat" `
-            -Dsonar.projectKey=FullStackApp `
-            -Dsonar.projectName=FullStackApp `
-            -Dsonar.host.url=http://localhost:9000 `
-            -Dsonar.token=$(sonarToken) `
-            -Dsonar.sources=frontend,backend `
-            -Dsonar.exclusions=**/node_modules/**,**/build/**,**/dist/**
+            --define sonar.projectKey=FullStackApp `
+            --define sonar.projectName=FullStackApp `
+            --define sonar.host.url=http://localhost:9000 `
+            --define sonar.token=$(sonarToken) `
+            --define sonar.sources=frontend,backend `
+            --define sonar.exclusions=**/node_modules/**,**/build/**,**/dist/**
 
 # ----------------------------
 # STAGE 3: SECURITY (Snyk/Trivy FS)
