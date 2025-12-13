@@ -17,7 +17,6 @@ variables:
   acrLoginServer: 'devopsacr123.azurecr.io' 
   acrServiceConnection: 'acr-connection'    
   aksServiceConnection: 'aks-connection'            
-  # sonarServiceConnection: 'sonarqube-local-connection' # Temporarily disabled
   
   # --- IMAGES ---
   backendImageName: 'backend-app'
@@ -26,7 +25,7 @@ variables:
   
   # --- APP CONFIG ---
   # RUN 1: Keep as localhost. 
-  # RUN 2: Update with Azure External IP.
+  # RUN 2: Update this after getting the Public IP from Azure Portal.
   backendUrl: 'http://localhost:5000' 
 
 stages:
@@ -53,17 +52,17 @@ stages:
           # 1. Fetch Key
           $key = az storage account keys list --resource-group $(bkResourceGroup) --account-name $(bkStorageAccount) --query "[0].value" -o tsv
           
-          # 2. Set Env Var for THIS session
+          # 2. Set Env Var for THIS session (Fixes the base64 error)
           $env:ARM_ACCESS_KEY = $key
           
-          # 3. Run Terraform (Uses the new password if changed)
+          # 3. Run Terraform
           terraform init -input=false -reconfigure
           terraform apply -auto-approve -var "sql_password=$env:SQL_PASS"
       env:
         SQL_PASS: $(sql_password)
 
 # ----------------------------
-# STAGE 2: CODE QUALITY (SKIPPED)
+# STAGE 2: CODE QUALITY (SKIPPED FOR NOW)
 # ----------------------------
 # - stage: CodeQuality
 #   displayName: "SonarQube Scan"
@@ -73,14 +72,11 @@ stages:
 #     steps:
 #     - task: SonarQubePrepare@5
 #       inputs:
-#         SonarQube: '$(sonarServiceConnection)'
+#         SonarQube: 'sonarqube-local-connection'
 #         scannerMode: 'CLI'
 #         configMode: 'manual'
 #         cliProjectKey: 'my-devops-app'
 #         cliProjectName: 'My DevOps App'
-#         extraProperties: |
-#           sonar.sources=frontend,backend
-#           sonar.exclusions=**/node_modules/**
 #     - task: SonarQubeAnalyze@5
 #     - task: SonarQubePublish@5
 #       inputs:
@@ -131,18 +127,27 @@ stages:
       runOnce:
         deploy:
           steps:
-            # NEW STEP: Create the Secret in Kubernetes
-            - task: KubernetesManifest@0
+            # 1. CREATE DATABASE SECRET IN KUBERNETES
+            # This takes the secure variable from ADO and creates a secret named 'db-secret'
+            - task: Kubernetes@1
               displayName: "Create DB Secret"
               inputs:
-                action: 'createSecret'
-                kubernetesServiceConnection: $(aksServiceConnection)
-                namespace: 'default'
-                secretType: 'generic'
-                secretName: 'db-secret'
-                secretArguments: '--from-literal=password=$(sql_password)'
+                connectionType: 'Kubernetes Service Connection'
+                kubernetesServiceEndpoint: $(aksServiceConnection)
+                command: 'login' # Login isn't strictly needed for the next inline script but ensures connectivity
+            
+            - task: AzureCLI@2
+              displayName: "Set K8s Secret"
+              inputs:
+                azureSubscription: 'azure-rm-terraform'
+                scriptType: 'ps'
+                scriptLocation: 'inlineScript'
+                inlineScript: |
+                  az aks get-credentials --resource-group devops-rg --name devops-aks --overwrite-existing
+                  # Create secret if not exists, or update it
+                  kubectl create secret generic db-secret --from-literal=password=$(sql_password) --dry-run=client -o yaml | kubectl apply -f -
 
-            # EXISTING STEP: Deploy the Apps
+            # 2. DEPLOY MANIFESTS
             - task: KubernetesManifest@0
               displayName: "Apply Manifests"
               inputs:
