@@ -203,6 +203,7 @@ stages:
         repository: $(frontendImageName)
         dockerfile: 'frontend/Dockerfile'
         containerRegistry: $(acrServiceConnection)
+        # ✅ Updated: frontend build now uses backendUrl variable
         arguments: '--build-arg REACT_APP_API_URL=$(backendUrl)'
         tags: |
           $(tag)
@@ -262,7 +263,28 @@ stages:
                   # 5. Apply Manifests
                   kubectl apply -f "$(System.DefaultWorkingDirectory)/manifests/deployment.yml"
                   kubectl apply -f "$(System.DefaultWorkingDirectory)/manifests/service.yml"
+          # ✅ NEW: Capture backend IP dynamically and set backendUrl variable
+            - task: AzureCLI@2
+              displayName: "Capture backend public IP"
+              inputs:
+                azureSubscription: 'azure-rm-terraform'
+                scriptType: 'ps'
+                scriptLocation: 'inlineScript'
+                inlineScript: |
+                  $ip = kubectl get svc backend-service -o jsonpath="{.status.loadBalancer.ingress[0].ip}"
+                  if (-not $ip) { throw "Backend public IP not found yet." }
+                  $backendUrl = "http://$ip:5000"
+                  Write-Host "##vso[task.setvariable variable=backendUrl]$backendUrl"
 
+            # ✅ NEW: Restart frontend deployment to pick up rebuilt image
+            - task: AzureCLI@2
+              displayName: "Restart frontend deployment"
+              inputs:
+                azureSubscription: 'azure-rm-terraform'
+                scriptType: 'ps'
+                scriptLocation: 'inlineScript'
+                inlineScript: |
+                  kubectl rollout restart deployment frontend
 # ----------------------------
 # STAGE 6: DESTROY (Manual)
 # ----------------------------
