@@ -10,33 +10,26 @@ const app = express();
 // Set the port for the server to listen on, using an environment variable if available, or defaulting to 5000
 const PORT = process.env.PORT || 5000;
 
-// Use the CORS middleware to enable cross-origin requests from any origin
-app.use(cors());
-
-/*
-// Optional: Restrict allowed origins and methods for more control
+// ✅ Updated: Restrict allowed origins to your frontend LoadBalancer IP
 app.use(cors({
-  origin: 'http://localhost:3000', // Allow requests only from the React app running on localhost:3000
-  methods: ['GET', 'POST'],        // Allow only GET and POST requests
+  origin: 'http://52.177.233.88', // frontend public IP
+  methods: ['GET', 'POST'],
 }));
-*/
 
 // Use the JSON middleware to automatically parse incoming JSON requests
 app.use(express.json());
 
 // Define a GET route at /api/project to handle API requests from the frontend
 app.get('/api/project', (req, res) => {
-    // Send a JSON response containing information about the project
     res.json({
         studentName: "Smith, John",
         projectName: "Weather App",
-        projectUrl: "http://10.0.0.1:3000/",
+        projectUrl: "http://20.15.62.129:5000/api/project",
         projectDescription: "This application provides real-time weather updates for any location worldwide."
     });
 });
 
 // Start the server and listen on the specified port
 app.listen(PORT, () => {
-    // Log a message to indicate the server is running
     console.log(`Server running on port ${PORT}`);
 });
