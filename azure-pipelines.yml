@@ -113,14 +113,14 @@ stages:
   - job: SonarScan
     displayName: "Run SonarScanner CLI"
     pool:
-      name: local-pool
+      name: local-pool   # your self-hosted Windows agent pool
     steps:
     - task: PowerShell@2
       displayName: "Run SonarScanner"
       inputs:
         targetType: 'inline'
         script: |
-          sonar-scanner `
+          & "C:\sonar-scanner\bin\sonar-scanner.bat" `
             -Dsonar.projectKey=FullStackApp `
             -Dsonar.projectName=FullStackApp `
             -Dsonar.host.url=http://localhost:9000 `
