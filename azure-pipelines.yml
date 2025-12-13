@@ -16,7 +16,7 @@ variables:
   # --- CONNECTIONS ---
   acrLoginServer: 'devopsacr123.azurecr.io' 
   acrServiceConnection: 'acr-connection'    
-  # Note: We bypass aksServiceConnection in the Deploy stage to avoid stale credential errors
+  # Bypass aksServiceConnection in Deploy to verify credentials dynamically
   aksServiceConnection: 'aks-connection'            
   sonarServiceConnection: 'sonarqube-local-connection'
   
@@ -26,11 +26,11 @@ variables:
   tag: '$(Build.BuildId)'
   
   # --- APP CONFIG ---
-  # Update this to the real IP after the deployment succeeds
+  # ⚠️ REPLACE THIS with the Real IP from Azure Portal (e.g. http://20.55.12.11)
   backendUrl: 'http://localhost:5000' 
 
   # --- SECURITY ---
-  # Ensure 'snykToken' is in your Variables/Library
+  # Ensure 'snykToken' is in your Variables
   # snykToken: '...' 
 
 stages:
@@ -41,7 +41,6 @@ stages:
   displayName: "Infrastructure"
   jobs:
   - job: TerraformWorkflow
-    displayName: "Terraform Workflow"
     steps:
     - task: TerraformInstaller@0
       inputs:
@@ -55,7 +54,6 @@ stages:
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
         inlineScript: |
-          Write-Host "Checking Infrastructure Backend..."
           $rgExists = az group exists --name $(bkResourceGroup)
           if ($rgExists -eq "false") { az group create --name $(bkResourceGroup) --location $(bkLocation) }
 
@@ -106,35 +104,40 @@ stages:
         ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
 
 # ----------------------------
-# STAGE 2: SONARQUBE (DISABLED)
+# STAGE 2: SONARQUBE (VIA DOCKER)
 # ----------------------------
-# We are skipping this because your Local Agent is not downloading the tasks.
-# Once the rest of the pipeline works, check C:\agent\_work\_tasks on your PC.
 - stage: SonarQube
   displayName: "SonarQube Analysis"
   dependsOn: Terraform
-  pool:
-    vmImage: 'ubuntu-latest'
+  condition: succeeded()
   jobs:
   - job: SonarScan
+    displayName: "Run SonarScanner via Docker"
     steps:
-    - checkout: self
-    - task: SonarQubePrepare@5
-      inputs:
-        SonarQube: '$(sonarServiceConnection)'
-        scannerMode: 'CLI'
-        configMode: 'manual'
-        cliProjectKey: 'my-devops-app'
-        cliProjectName: 'My DevOps App'
-    - task: SonarQubeAnalyze@5
-    - task: SonarQubePublish@5
+    - script: |
+        echo "Running SonarQube Scanner using Docker..."
+        
+        # We run the official Sonar Scanner container
+        # We map the current folder ($(System.DefaultWorkingDirectory)) to the container
+        # We pass the Token and URL as environment variables
+        
+        docker run --rm \
+          -v "$(System.DefaultWorkingDirectory):/usr/src" \
+          sonarsource/sonar-scanner-cli \
+          -Dsonar.projectKey="my-devops-app" \
+          -Dsonar.projectName="My DevOps App" \
+          -Dsonar.host.url="http://host.docker.internal:9000" \
+          -Dsonar.token="$(sonarToken)" \
+          -Dsonar.sources="frontend,backend" \
+          -Dsonar.exclusions="**/node_modules/**,**/build/**,**/dist/**"
+      displayName: "Execute Sonar Scanner"
 
 # ----------------------------
 # STAGE 3: SECURITY (Snyk/Trivy FS)
 # ----------------------------
 - stage: SecurityCode
   displayName: "Security: Code Scan"
-  dependsOn: Terraform # Changed dependency to skip SonarQube
+  dependsOn: SonarQube # Runs after SonarQube
   jobs:
   - job: SnykScan
     displayName: "Snyk (Dependencies)"
@@ -178,7 +181,7 @@ stages:
           $(tag)
           latest
 
-    # TRIVY IMAGE SCAN (BACKEND)
+    # Trivy Image Scan (Backend)
     - script: |
         echo "Scanning Backend Image..."
         docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image $(acrLoginServer)/$(backendImageName):$(tag) --exit-code 0
@@ -208,7 +211,7 @@ stages:
           $(tag)
           latest
 
-    # TRIVY IMAGE SCAN (FRONTEND)
+    # Trivy Image Scan (Frontend)
     - script: |
         echo "Scanning Frontend Image..."
         docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image $(acrLoginServer)/$(frontendImageName):$(tag) --exit-code 0
@@ -226,7 +229,7 @@ stages:
           latest
 
 # ----------------------------
-# STAGE 5: DEPLOY (AKS) - FIXED "NO SUCH HOST"
+# STAGE 5: DEPLOY (AKS)
 # ----------------------------
 - stage: Deploy
   displayName: "Deploy to AKS"
@@ -246,18 +249,16 @@ stages:
                 scriptType: 'ps'
                 scriptLocation: 'inlineScript'
                 inlineScript: |
-                  # 1. Clean up old credentials to fix "No Such Host" error
-                  if (Test-Path "$env:USERPROFILE\.kube\config") {
-                      Remove-Item "$env:USERPROFILE\.kube\config" -Force
-                  }
+                  # 1. Clean up old credentials
+                  if (Test-Path "$env:USERPROFILE\.kube\config") { Remove-Item "$env:USERPROFILE\.kube\config" -Force }
 
-                  # 2. Get Fresh Credentials for the NEW Cluster
+                  # 2. Get Fresh Credentials
                   az aks get-credentials --resource-group devops-rg --name devops-aks --overwrite-existing
                   
                   # 3. Create DB Secret
                   kubectl create secret generic db-secret --from-literal=password=$(sql_password) --dry-run=client -o yaml | kubectl apply -f -
 
-                  # 4. Update Manifests with Specific Tag (Replace 'latest' with BuildID)
+                  # 4. Update Manifests
                   $manifests = "$(System.DefaultWorkingDirectory)/manifests/deployment.yml"
                   (Get-Content $manifests) -replace 'backend-app:latest', "backend-app:$(tag)" -replace 'frontend-app:latest', "frontend-app:$(tag)" | Set-Content $manifests
 
@@ -274,7 +275,6 @@ stages:
   condition: eq(variables['Build.Reason'], 'Manual') 
   jobs:
   - job: TerraformDestroy
-    displayName: "Terraform Destroy"
     steps:
     - task: TerraformInstaller@0
       inputs:
@@ -286,11 +286,9 @@ stages:
         azureSubscription: 'azure-rm-terraform'
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
-        workingDirectory: $(workingDir)
         inlineScript: |
           $key = az storage account keys list --resource-group $(bkResourceGroup) --account-name $(bkStorageAccount) --query "[0].value" -o tsv
           $env:ARM_ACCESS_KEY = $key
-
           terraform init -input=false -reconfigure
           terraform destroy -auto-approve -var "sql_password=$env:SQL_PASS"
       env:
