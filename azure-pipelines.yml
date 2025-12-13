@@ -276,7 +276,7 @@ stages:
                   $backendUrl = "http://$ip:5000"
                   Write-Host "##vso[task.setvariable variable=backendUrl]$backendUrl"
 
-            # ✅ NEW: Restart frontend deployment to pick up rebuilt image
+             # ✅ NEW: Restart frontend deployment to pick up rebuilt image
             - task: AzureCLI@2
               displayName: "Restart frontend deployment"
               inputs:
@@ -284,7 +284,7 @@ stages:
                 scriptType: 'ps'
                 scriptLocation: 'inlineScript'
                 inlineScript: |
-                  kubectl rollout restart deployment frontend
+                  kubectl rollout restart deployment frontend-deployment
 # ----------------------------
 # STAGE 6: DESTROY (Manual)
 # ----------------------------
