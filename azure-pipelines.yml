@@ -104,7 +104,7 @@ stages:
         ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
 
 # ----------------------------
-# STAGE 2: SONARQUBE (VIA DOCKER)
+# STAGE 2: SONARQUBE (VIA DOCKER ON WINDOWS)
 # ----------------------------
 - stage: SonarQube
   displayName: "SonarQube Analysis"
@@ -113,18 +113,25 @@ stages:
   jobs:
   - job: SonarScan
     displayName: "Run SonarScanner via Docker"
+    pool:
+      name: local-pool   # your Windows self-hosted agent with Docker installed
     steps:
-    - script: |
-        echo "Running SonarQube Scanner using Docker..."
-        
-        # We run the official Sonar Scanner container
-        # We map the current folder ($(System.DefaultWorkingDirectory)) to the container
-        # We pass the Token and URL as environment variables
-        
-        - script: |
-          echo Running SonarQube Scanner using Docker...
-          docker run --rm -v "$(System.DefaultWorkingDirectory):/usr/src" sonarsource/sonar-scanner-cli -Dsonar.projectKey="my-devops-app" -Dsonar.projectName="My DevOps App" -Dsonar.host.url="http://host.docker.internal:9000" -Dsonar.token="$(sonarToken)" -Dsonar.sources="frontend,backend" -Dsonar.exclusions="**/node_modules/**,**/build/**,**/dist/**"
-        displayName: "Execute Sonar Scanner"
+    - task: PowerShell@2
+      displayName: "Execute Sonar Scanner"
+      inputs:
+        targetType: 'inline'
+        script: |
+          Write-Host "Running SonarQube Scanner using Docker..."
+
+          docker run --rm `
+            -v "$(System.DefaultWorkingDirectory):/usr/src" `
+            sonarsource/sonar-scanner-cli `
+            -Dsonar.projectKey="my-devops-app" `
+            -Dsonar.projectName="My DevOps App" `
+            -Dsonar.host.url="http://host.docker.internal:9000" `
+            -Dsonar.token="$(sonarToken)" `
+            -Dsonar.sources="frontend,backend" `
+            -Dsonar.exclusions="**/node_modules/**,**/build/**,**/dist/**"
 
 # ----------------------------
 # STAGE 3: SECURITY (Snyk/Trivy FS)
