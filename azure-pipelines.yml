@@ -114,7 +114,7 @@ stages:
   - job: SonarScan
     displayName: "Run SonarScanner via Docker"
     pool:
-      name: local-pool   # your Windows self-hosted agent with Docker installed
+      name: local-pool   # Windows self-hosted agent with Docker installed
     steps:
     - task: PowerShell@2
       displayName: "Execute Sonar Scanner"
@@ -126,12 +126,12 @@ stages:
           docker run --rm `
             -v "$(System.DefaultWorkingDirectory):/usr/src" `
             sonarsource/sonar-scanner-cli `
-            -Dsonar.projectKey="my-devops-app" `
-            -Dsonar.projectName="My DevOps App" `
-            -Dsonar.host.url="http://host.docker.internal:9000" `
-            -Dsonar.token="$env:sonarToken" `
-            -Dsonar.sources="frontend,backend" `
-            -Dsonar.exclusions="**/node_modules/**,**/build/**,**/dist/**"
+            "-Dsonar.projectKey=my-devops-app" `
+            "-Dsonar.projectName=My DevOps App" `
+            "-Dsonar.host.url=http://host.docker.internal:9000" `
+            "-Dsonar.token=$env:sonarToken" `
+            "-Dsonar.sources=frontend,backend" `
+            "-Dsonar.exclusions=**/node_modules/**,**/build/**,**/dist/**"
 
 # ----------------------------
 # STAGE 3: SECURITY (Snyk/Trivy FS)
