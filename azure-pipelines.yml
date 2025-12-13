@@ -121,16 +121,10 @@ stages:
         # We map the current folder ($(System.DefaultWorkingDirectory)) to the container
         # We pass the Token and URL as environment variables
         
-        docker run --rm \
-          -v "$(System.DefaultWorkingDirectory):/usr/src" \
-          sonarsource/sonar-scanner-cli \
-          -Dsonar.projectKey="my-devops-app" \
-          -Dsonar.projectName="My DevOps App" \
-          -Dsonar.host.url="http://host.docker.internal:9000" \
-          -Dsonar.token="$(sonarToken)" \
-          -Dsonar.sources="frontend,backend" \
-          -Dsonar.exclusions="**/node_modules/**,**/build/**,**/dist/**"
-      displayName: "Execute Sonar Scanner"
+        - script: |
+          echo Running SonarQube Scanner using Docker...
+          docker run --rm -v "$(System.DefaultWorkingDirectory):/usr/src" sonarsource/sonar-scanner-cli -Dsonar.projectKey="my-devops-app" -Dsonar.projectName="My DevOps App" -Dsonar.host.url="http://host.docker.internal:9000" -Dsonar.token="$(sonarToken)" -Dsonar.sources="frontend,backend" -Dsonar.exclusions="**/node_modules/**,**/build/**,**/dist/**"
+        displayName: "Execute Sonar Scanner"
 
 # ----------------------------
 # STAGE 3: SECURITY (Snyk/Trivy FS)
