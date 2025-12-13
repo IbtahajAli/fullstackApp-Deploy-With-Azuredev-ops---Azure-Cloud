@@ -24,9 +24,12 @@ spec:
           value: "devopsdb"
         - name: DB_USER
           value: "sqladmin"
-        # Ideally, DB_PASSWORD should be a k8s secret, but for now:
+        # SECURITY UPDATE: Reading from the K8s Secret created by the Pipeline
         - name: DB_PASSWORD 
-          value: "YourSqlPassword123!" 
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: password
 ---
 apiVersion: apps/v1
 kind: Deployment
