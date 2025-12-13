@@ -113,7 +113,7 @@ stages:
   - job: SonarScan
     displayName: "Run SonarScanner CLI"
     pool:
-      name: local-pool   # your Windows self-hosted agent
+      name: local-pool
     steps:
     - task: PowerShell@2
       displayName: "Run SonarScanner"
@@ -124,7 +124,7 @@ stages:
             -Dsonar.projectKey=FullStackApp `
             -Dsonar.projectName=FullStackApp `
             -Dsonar.host.url=http://localhost:9000 `
-            -Dsonar.login=$env:sonarToken `
+            -Dsonar.token=$env:sonarToken `
             -Dsonar.sources=frontend,backend `
             -Dsonar.exclusions=**/node_modules/**,**/build/**,**/dist/**
 
