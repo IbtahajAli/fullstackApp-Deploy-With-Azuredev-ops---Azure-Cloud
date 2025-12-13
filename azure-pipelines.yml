@@ -24,13 +24,12 @@ variables:
   tag: '$(Build.BuildId)'
   
   # --- APP CONFIG ---
-  # RUN 1: Keep as localhost. 
-  # RUN 2: Update this after getting the Public IP from Azure Portal.
+  # Update this after deployment to the real IP
   backendUrl: 'http://localhost:5000' 
 
 stages:
 # ----------------------------
-# STAGE 1: INFRASTRUCTURE
+# STAGE 1: INFRASTRUCTURE (With Auto-Repair)
 # ----------------------------
 - stage: Terraform
   displayName: "Infrastructure Check"
@@ -42,27 +41,56 @@ stages:
         terraformVersion: $(tfVersion)
 
     - task: AzureCLI@2
-      displayName: "Init & Apply Terraform"
+      displayName: "Check, Create Backend & Apply"
       inputs:
         azureSubscription: 'azure-rm-terraform'
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
         inlineScript: |
-          # 1. Fetch Key
+          # --- 1. BOOTSTRAP: RECREATE BACKEND IF MISSING ---
+          
+          # Check/Create Resource Group
+          $rgExists = az group exists --name $(bkResourceGroup)
+          if ($rgExists -eq "false") {
+            Write-Host "Resource Group missing. Creating $(bkResourceGroup)..."
+            az group create --name $(bkResourceGroup) --location $(bkLocation)
+          }
+
+          # Check/Create Storage Account
+          $accCheck = az storage account check-name --name $(bkStorageAccount) | ConvertFrom-Json
+          if ($accCheck.nameAvailable -eq $true) {
+             Write-Host "Storage Account missing. Creating $(bkStorageAccount)..."
+             az storage account create --name $(bkStorageAccount) --resource-group $(bkResourceGroup) --location $(bkLocation) --sku Standard_LRS
+          } else {
+             $myAcc = az storage account list --resource-group $(bkResourceGroup) --query "[?name=='$(bkStorageAccount)']" | ConvertFrom-Json
+             if ($null -eq $myAcc) {
+                Write-Error "Storage name $(bkStorageAccount) is taken! Change name in variables."
+                exit 1
+             }
+          }
+
+          # Get Storage Key
           $key = az storage account keys list --resource-group $(bkResourceGroup) --account-name $(bkStorageAccount) --query "[0].value" -o tsv
           
-          # 2. Set Env Var for THIS session (Fixes the base64 error)
+          # Check/Create Container
+          $containerCheck = az storage container exists --name $(bkContainer) --account-name $(bkStorageAccount) --account-key $key | ConvertFrom-Json
+          if ($containerCheck.exists -eq "false") {
+             Write-Host "Container missing. Creating $(bkContainer)..."
+             az storage container create --name $(bkContainer) --account-name $(bkStorageAccount) --account-key $key
+          }
+
+          # --- 2. SETUP TERRAFORM AUTH ---
           $env:ARM_ACCESS_KEY = $key
-          
-          # 3. Run Terraform
+
+          # --- 3. RUN TERRAFORM ---
           terraform init -input=false -reconfigure
           terraform apply -auto-approve -var "sql_password=$env:SQL_PASS"
       env:
         SQL_PASS: $(sql_password)
 
 # ----------------------------
-# STAGE 2: CODE QUALITY (SKIPPED FOR NOW)
+# STAGE 2: CODE QUALITY (SKIPPED)
 # ----------------------------
 # - stage: CodeQuality
 #   displayName: "SonarQube Scan"
@@ -127,14 +155,13 @@ stages:
       runOnce:
         deploy:
           steps:
-            # 1. CREATE DATABASE SECRET IN KUBERNETES
-            # This takes the secure variable from ADO and creates a secret named 'db-secret'
+            # Create DB Secret using the ADO Variable
             - task: Kubernetes@1
               displayName: "Create DB Secret"
               inputs:
                 connectionType: 'Kubernetes Service Connection'
                 kubernetesServiceEndpoint: $(aksServiceConnection)
-                command: 'login' # Login isn't strictly needed for the next inline script but ensures connectivity
+                command: 'login'
             
             - task: AzureCLI@2
               displayName: "Set K8s Secret"
@@ -144,10 +171,9 @@ stages:
                 scriptLocation: 'inlineScript'
                 inlineScript: |
                   az aks get-credentials --resource-group devops-rg --name devops-aks --overwrite-existing
-                  # Create secret if not exists, or update it
                   kubectl create secret generic db-secret --from-literal=password=$(sql_password) --dry-run=client -o yaml | kubectl apply -f -
 
-            # 2. DEPLOY MANIFESTS
+            # Deploy Manifests
             - task: KubernetesManifest@0
               displayName: "Apply Manifests"
               inputs:
