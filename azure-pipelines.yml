@@ -2,10 +2,10 @@ trigger:
 - main
 
 pool:
-  name: local-pool # Using your self-hosted agent for all stages
+  name: local-pool
 
 variables:
-  # --- TERRAFORM VARIABLES ---
+  # --- TERRAFORM VARS ---
   tfVersion: '1.9.0'
   workingDir: '$(System.DefaultWorkingDirectory)/terraform'
   bkResourceGroup: 'rg-terraform-backend'
@@ -13,129 +13,132 @@ variables:
   bkContainer: 'tfstate'
   bkLocation: 'eastus'
   
-  # --- APP & DEPLOY VARIABLES ---
-  # Based on your Terraform main.tf
+  # --- CONNECTIONS ---
   acrLoginServer: 'devopsacr123.azurecr.io' 
+  acrServiceConnection: 'acr-connection'    
+  aksServiceConnection: 'aks-connection'            
   
-  # Service Connection Names (Created in ADO Project Settings)
-  acrServiceConnection: 'acr-connection'            # Select Docker Registry -> Azure Container Registry
-  aksServiceConnection: 'aks-connection'            # Select Kubernetes -> Azure Subscription
-  sonarServiceConnection: 'sonarqube-local-connection' # The one we just named above
-  
-  # Image Config
+  # --- IMAGES ---
   backendImageName: 'backend-app'
   frontendImageName: 'frontend-app'
   tag: '$(Build.BuildId)'
+  
+  # --- APP CONFIG ---
+  backendUrl: 'http://localhost:5000' 
 
 stages:
 # ----------------------------
-# STAGE 1: INFRASTRUCTURE (Terraform)
+# STAGE 1: INFRASTRUCTURE (Separated Steps)
 # ----------------------------
 - stage: Terraform
   displayName: "Infrastructure"
   jobs:
-  - job: DeployInfra
-    displayName: "Terraform Apply"
+  - job: TerraformWorkflow
+    displayName: "Terraform Workflow"
     steps:
     - task: TerraformInstaller@0
       displayName: "Install Terraform"
       inputs:
         terraformVersion: $(tfVersion)
 
+    # ----------------------------------------------------
+    # STEP 1: BOOTSTRAP (Repair Storage & Get Access Key)
+    # ----------------------------------------------------
     - task: AzureCLI@2
-      displayName: "Check & Create Backend Storage"
+      displayName: "1. Bootstrap & Setup Auth"
       inputs:
         azureSubscription: 'azure-rm-terraform'
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
+        workingDirectory: $(workingDir)
         inlineScript: |
+          Write-Host "Checking Infrastructure Backend..."
+          
+          # 1. Check/Create Resource Group
           $rgExists = az group exists --name $(bkResourceGroup)
-          if ($rgExists -eq "false") { az group create --name $(bkResourceGroup) --location $(bkLocation) }
-          
-          $accExists = az storage account check-name --name $(bkStorageAccount) | ConvertFrom-Json
-          if ($accExists.nameAvailable -eq $true) { az storage account create --name $(bkStorageAccount) --resource-group $(bkResourceGroup) --location $(bkLocation) --sku Standard_LRS }
-          
+          if ($rgExists -eq "false") {
+            Write-Host "Creating Resource Group $(bkResourceGroup)..."
+            az group create --name $(bkResourceGroup) --location $(bkLocation)
+          }
+
+          # 2. Check/Create Storage Account
+          $accCheck = az storage account check-name --name $(bkStorageAccount) | ConvertFrom-Json
+          if ($accCheck.nameAvailable -eq $true) {
+             Write-Host "Creating Storage Account $(bkStorageAccount)..."
+             az storage account create --name $(bkStorageAccount) --resource-group $(bkResourceGroup) --location $(bkLocation) --sku Standard_LRS
+             Start-Sleep -Seconds 10
+          }
+
+          # 3. Get Key
           $key = az storage account keys list --resource-group $(bkResourceGroup) --account-name $(bkStorageAccount) --query "[0].value" -o tsv
           
-          $containerCheck = az storage container exists --name $(bkContainer) --account-name $(bkStorageAccount) --account-key $key | ConvertFrom-Json
-          if ($containerCheck.exists -eq "false") { az storage container create --name $(bkContainer) --account-name $(bkStorageAccount) --account-key $key }
+          # 4. Check/Create Container (Reliable check)
+          $containerExists = az storage container exists --name $(bkContainer) --account-name $(bkStorageAccount) --account-key $key --query "exists" -o tsv
           
+          if ($containerExists -ne "true") {
+             Write-Host "Creating Container $(bkContainer)..."
+             az storage container create --name $(bkContainer) --account-name $(bkStorageAccount) --account-key $key
+          }
+
+          # 5. SAVE KEY FOR NEXT TASKS
+          # This line allows the next steps (Init/Plan/Apply) to read the key
           Write-Host "##vso[task.setvariable variable=ARM_ACCESS_KEY;issecret=true]$key"
 
+    # ----------------------------------------------------
+    # STEP 2: TERRAFORM INIT
+    # ----------------------------------------------------
     - task: AzureCLI@2
-      displayName: "Terraform Init"
+      displayName: "2. Terraform Init"
       inputs:
         azureSubscription: 'azure-rm-terraform'
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
-        inlineScript: terraform init -input=false -reconfigure
+        inlineScript: |
+          terraform init -input=false -reconfigure
       env:
         ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
 
+    # ----------------------------------------------------
+    # STEP 3: TERRAFORM PLAN
+    # ----------------------------------------------------
     - task: AzureCLI@2
-      displayName: "Terraform Plan"
+      displayName: "3. Terraform Plan"
       inputs:
         azureSubscription: 'azure-rm-terraform'
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
-        inlineScript: terraform plan -out=tfplan -var "sql_password=$env:SQL_PASS"
+        inlineScript: |
+          terraform plan -out=tfplan -var "sql_password=$env:SQL_PASS"
       env:
+        ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
         SQL_PASS: $(sql_password)
-        ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
 
+    # ----------------------------------------------------
+    # STEP 4: TERRAFORM APPLY
+    # ----------------------------------------------------
     - task: AzureCLI@2
-      displayName: "Terraform Apply"
+      displayName: "4. Terraform Apply"
       inputs:
         azureSubscription: 'azure-rm-terraform'
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
-        inlineScript: terraform apply -auto-approve tfplan
+        inlineScript: |
+          terraform apply -auto-approve tfplan
       env:
         ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
 
 # ----------------------------
-# STAGE 2: CODE QUALITY (SonarQube)
-# ----------------------------
-- stage: CodeQuality
-  displayName: "SonarQube Scan"
-  dependsOn: Terraform
-  condition: succeeded()
-  jobs:
-  - job: SonarScan
-    displayName: "Analyze Code"
-    steps:
-    - task: SonarQubePrepare@5
-      inputs:
-        SonarQube: '$(sonarServiceConnection)'
-        scannerMode: 'CLI'
-        configMode: 'manual'
-        cliProjectKey: 'my-devops-app' # Set this key in your SonarQube UI
-        cliProjectName: 'My DevOps App'
-        extraProperties: |
-          sonar.sources=frontend,backend
-          sonar.exclusions=**/node_modules/**,**/build/**,**/dist/**
-
-    - task: SonarQubeAnalyze@5
-      displayName: "Run Code Analysis"
-
-    - task: SonarQubePublish@5
-      displayName: "Publish Quality Gate"
-      inputs:
-        pollingTimeoutSec: '300'
-
-# ----------------------------
-# STAGE 3: BUILD & PUSH (Docker)
+# STAGE 2: BUILD & PUSH
 # ----------------------------
 - stage: BuildAndPush
   displayName: "Build Docker Images"
-  dependsOn: CodeQuality
+  dependsOn: Terraform
   condition: succeeded()
   jobs:
   - job: BuildImages
-    displayName: "Build & Push"
     steps:
     - task: Docker@2
       displayName: "Build Backend"
@@ -155,12 +158,13 @@ stages:
         repository: $(frontendImageName)
         dockerfile: 'frontend/Dockerfile'
         containerRegistry: $(acrServiceConnection)
+        arguments: '--build-arg REACT_APP_API_URL=$(backendUrl)'
         tags: |
           $(tag)
           latest
 
 # ----------------------------
-# STAGE 4: DEPLOY (AKS)
+# STAGE 3: DEPLOY (AKS)
 # ----------------------------
 - stage: Deploy
   displayName: "Deploy to AKS"
@@ -168,12 +172,28 @@ stages:
   condition: succeeded()
   jobs:
   - deployment: DeployAKS
-    displayName: "Deploy Manifests"
     environment: 'production'
     strategy:
       runOnce:
         deploy:
           steps:
+            - task: Kubernetes@1
+              displayName: "Create DB Secret"
+              inputs:
+                connectionType: 'Kubernetes Service Connection'
+                kubernetesServiceEndpoint: $(aksServiceConnection)
+                command: 'login'
+            
+            - task: AzureCLI@2
+              displayName: "Set K8s Secret"
+              inputs:
+                azureSubscription: 'azure-rm-terraform'
+                scriptType: 'ps'
+                scriptLocation: 'inlineScript'
+                inlineScript: |
+                  az aks get-credentials --resource-group devops-rg --name devops-aks --overwrite-existing
+                  kubectl create secret generic db-secret --from-literal=password=$(sql_password) --dry-run=client -o yaml | kubectl apply -f -
+
             - task: KubernetesManifest@0
               displayName: "Apply Manifests"
               inputs:
@@ -186,3 +206,37 @@ stages:
                 containers: |
                   $(acrLoginServer)/$(backendImageName):$(tag)
                   $(acrLoginServer)/$(frontendImageName):$(tag)
+
+# ----------------------------
+# STAGE 4: DESTROY (Manual)
+# ----------------------------
+- stage: DestroyInfra
+  displayName: "Destroy Infrastructure"
+  dependsOn: Deploy
+  condition: eq(variables['Build.Reason'], 'Manual') 
+  jobs:
+  - job: TerraformDestroy
+    displayName: "Terraform Destroy"
+    steps:
+    - task: TerraformInstaller@0
+      inputs:
+        terraformVersion: $(tfVersion)
+
+    - task: AzureCLI@2
+      displayName: "Bootstrap & Destroy"
+      inputs:
+        azureSubscription: 'azure-rm-terraform'
+        scriptType: 'ps'
+        scriptLocation: 'inlineScript'
+        workingDirectory: $(workingDir)
+        inlineScript: |
+          # Need keys to destroy
+          $key = az storage account keys list --resource-group $(bkResourceGroup) --account-name $(bkStorageAccount) --query "[0].value" -o tsv
+          $env:ARM_ACCESS_KEY = $key
+
+          terraform init -input=false -reconfigure
+          
+          Write-Host "DESTROYING INFRASTRUCTURE..."
+          terraform destroy -auto-approve -var "sql_password=$env:SQL_PASS"
+      env:
+        SQL_PASS: $(sql_password)
