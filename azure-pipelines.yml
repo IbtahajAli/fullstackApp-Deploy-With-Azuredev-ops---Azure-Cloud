@@ -104,10 +104,6 @@ stages:
         ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
 
 # ----------------------------
-# STAGE 2: SONARQUBE (VIA DOCKER ON WINDOWS)
-# ----------------------------
-
-# ----------------------------
 # STAGE 2: SONARQUBE
 # ----------------------------
 - stage: SonarQube
