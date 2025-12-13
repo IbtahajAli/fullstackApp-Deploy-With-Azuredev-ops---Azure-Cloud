@@ -129,7 +129,7 @@ stages:
             -Dsonar.projectKey="my-devops-app" `
             -Dsonar.projectName="My DevOps App" `
             -Dsonar.host.url="http://host.docker.internal:9000" `
-            -Dsonar.token="$(sonarToken)" `
+            -Dsonar.token="$env:sonarToken" `
             -Dsonar.sources="frontend,backend" `
             -Dsonar.exclusions="**/node_modules/**,**/build/**,**/dist/**"
 
