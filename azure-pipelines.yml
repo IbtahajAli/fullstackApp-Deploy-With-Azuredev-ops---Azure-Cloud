@@ -110,26 +110,24 @@ stages:
 # ----------------------------
 # We are skipping this because your Local Agent is not downloading the tasks.
 # Once the rest of the pipeline works, check C:\agent\_work\_tasks on your PC.
-# - stage: SonarQube
-#   displayName: "SonarQube Analysis"
-#   dependsOn: Terraform
-#   jobs:
-#   - job: SonarScan
-#     steps:
-#     - task: SonarQubePrepare@5
-#       inputs:
-#         SonarQube: '$(sonarServiceConnection)'
-#         scannerMode: 'CLI'
-#         configMode: 'manual'
-#         cliProjectKey: 'my-devops-app'
-#         cliProjectName: 'My DevOps App'
-#         extraProperties: |
-#           sonar.sources=frontend,backend
-#           sonar.exclusions=**/node_modules/**,**/build/**,**/dist/**
-#     - task: SonarQubeAnalyze@5
-#     - task: SonarQubePublish@5
-#       inputs:
-#         pollingTimeoutSec: '300'
+- stage: SonarQube
+  displayName: "SonarQube Analysis"
+  dependsOn: Terraform
+  pool:
+    vmImage: 'ubuntu-latest'
+  jobs:
+  - job: SonarScan
+    steps:
+    - checkout: self
+    - task: SonarQubePrepare@5
+      inputs:
+        SonarQube: '$(sonarServiceConnection)'
+        scannerMode: 'CLI'
+        configMode: 'manual'
+        cliProjectKey: 'my-devops-app'
+        cliProjectName: 'My DevOps App'
+    - task: SonarQubeAnalyze@5
+    - task: SonarQubePublish@5
 
 # ----------------------------
 # STAGE 3: SECURITY (Snyk/Trivy FS)
