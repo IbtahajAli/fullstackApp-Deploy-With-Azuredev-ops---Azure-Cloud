@@ -130,113 +130,113 @@ stages:
       env:
         ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
 
-# # ----------------------------
-# # STAGE 2: BUILD & PUSH
-# # ----------------------------
-# - stage: BuildAndPush
-#   displayName: "Build Docker Images"
-#   dependsOn: Terraform
-#   condition: succeeded()
-#   jobs:
-#   - job: BuildImages
-#     steps:
-#     - task: Docker@2
-#       displayName: "Build Backend"
-#       inputs:
-#         command: buildAndPush
-#         repository: $(backendImageName)
-#         dockerfile: 'backend/Dockerfile'
-#         containerRegistry: $(acrServiceConnection)
-#         tags: |
-#           $(tag)
-#           latest
+# ----------------------------
+# STAGE 2: BUILD & PUSH
+# ----------------------------
+- stage: BuildAndPush
+  displayName: "Build Docker Images"
+  dependsOn: Terraform
+  condition: succeeded()
+  jobs:
+  - job: BuildImages
+    steps:
+    - task: Docker@2
+      displayName: "Build Backend"
+      inputs:
+        command: buildAndPush
+        repository: $(backendImageName)
+        dockerfile: 'backend/Dockerfile'
+        containerRegistry: $(acrServiceConnection)
+        tags: |
+          $(tag)
+          latest
 
-#     - task: Docker@2
-#       displayName: "Build Frontend"
-#       inputs:
-#         command: buildAndPush
-#         repository: $(frontendImageName)
-#         dockerfile: 'frontend/Dockerfile'
-#         containerRegistry: $(acrServiceConnection)
-#         arguments: '--build-arg REACT_APP_API_URL=$(backendUrl)'
-#         tags: |
-#           $(tag)
-#           latest
+    - task: Docker@2
+      displayName: "Build Frontend"
+      inputs:
+        command: buildAndPush
+        repository: $(frontendImageName)
+        dockerfile: 'frontend/Dockerfile'
+        containerRegistry: $(acrServiceConnection)
+        arguments: '--build-arg REACT_APP_API_URL=$(backendUrl)'
+        tags: |
+          $(tag)
+          latest
 
-# # ----------------------------
-# # STAGE 3: DEPLOY (AKS)
-# # ----------------------------
-# - stage: Deploy
-#   displayName: "Deploy to AKS"
-#   dependsOn: BuildAndPush
-#   condition: succeeded()
-#   jobs:
-#   - deployment: DeployAKS
-#     environment: 'production'
-#     strategy:
-#       runOnce:
-#         deploy:
-#           steps:
-#             - task: Kubernetes@1
-#               displayName: "Create DB Secret"
-#               inputs:
-#                 connectionType: 'Kubernetes Service Connection'
-#                 kubernetesServiceEndpoint: $(aksServiceConnection)
-#                 command: 'login'
+# ----------------------------
+# STAGE 3: DEPLOY (AKS)
+# ----------------------------
+- stage: Deploy
+  displayName: "Deploy to AKS"
+  dependsOn: BuildAndPush
+  condition: succeeded()
+  jobs:
+  - deployment: DeployAKS
+    environment: 'production'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - task: Kubernetes@1
+              displayName: "Create DB Secret"
+              inputs:
+                connectionType: 'Kubernetes Service Connection'
+                kubernetesServiceEndpoint: $(aksServiceConnection)
+                command: 'login'
             
-#             - task: AzureCLI@2
-#               displayName: "Set K8s Secret"
-#               inputs:
-#                 azureSubscription: 'azure-rm-terraform'
-#                 scriptType: 'ps'
-#                 scriptLocation: 'inlineScript'
-#                 inlineScript: |
-#                   az aks get-credentials --resource-group devops-rg --name devops-aks --overwrite-existing
-#                   kubectl create secret generic db-secret --from-literal=password=$(sql_password) --dry-run=client -o yaml | kubectl apply -f -
+            - task: AzureCLI@2
+              displayName: "Set K8s Secret"
+              inputs:
+                azureSubscription: 'azure-rm-terraform'
+                scriptType: 'ps'
+                scriptLocation: 'inlineScript'
+                inlineScript: |
+                  az aks get-credentials --resource-group devops-rg --name devops-aks --overwrite-existing
+                  kubectl create secret generic db-secret --from-literal=password=$(sql_password) --dry-run=client -o yaml | kubectl apply -f -
 
-#             - task: KubernetesManifest@0
-#               displayName: "Apply Manifests"
-#               inputs:
-#                 action: 'deploy'
-#                 kubernetesServiceConnection: $(aksServiceConnection)
-#                 namespace: 'default'
-#                 manifests: |
-#                   $(System.DefaultWorkingDirectory)/manifests/deployment.yml
-#                   $(System.DefaultWorkingDirectory)/manifests/service.yml
-#                 containers: |
-#                   $(acrLoginServer)/$(backendImageName):$(tag)
-#                   $(acrLoginServer)/$(frontendImageName):$(tag)
+            - task: KubernetesManifest@0
+              displayName: "Apply Manifests"
+              inputs:
+                action: 'deploy'
+                kubernetesServiceConnection: $(aksServiceConnection)
+                namespace: 'default'
+                manifests: |
+                  $(System.DefaultWorkingDirectory)/manifests/deployment.yml
+                  $(System.DefaultWorkingDirectory)/manifests/service.yml
+                containers: |
+                  $(acrLoginServer)/$(backendImageName):$(tag)
+                  $(acrLoginServer)/$(frontendImageName):$(tag)
 
-# # ----------------------------
-# # STAGE 4: DESTROY (Manual)
-# # ----------------------------
-# - stage: DestroyInfra
-#   displayName: "Destroy Infrastructure"
-#   dependsOn: Deploy
-#   condition: eq(variables['Build.Reason'], 'Manual') 
-#   jobs:
-#   - job: TerraformDestroy
-#     displayName: "Terraform Destroy"
-#     steps:
-#     - task: TerraformInstaller@0
-#       inputs:
-#         terraformVersion: $(tfVersion)
+# ----------------------------
+# STAGE 4: DESTROY (Manual)
+# ----------------------------
+- stage: DestroyInfra
+  displayName: "Destroy Infrastructure"
+  dependsOn: Deploy
+  condition: eq(variables['Build.Reason'], 'Manual') 
+  jobs:
+  - job: TerraformDestroy
+    displayName: "Terraform Destroy"
+    steps:
+    - task: TerraformInstaller@0
+      inputs:
+        terraformVersion: $(tfVersion)
 
-#     - task: AzureCLI@2
-#       displayName: "Bootstrap & Destroy"
-#       inputs:
-#         azureSubscription: 'azure-rm-terraform'
-#         scriptType: 'ps'
-#         scriptLocation: 'inlineScript'
-#         workingDirectory: $(workingDir)
-#         inlineScript: |
-#           # Need keys to destroy
-#           $key = az storage account keys list --resource-group $(bkResourceGroup) --account-name $(bkStorageAccount) --query "[0].value" -o tsv
-#           $env:ARM_ACCESS_KEY = $key
+    - task: AzureCLI@2
+      displayName: "Bootstrap & Destroy"
+      inputs:
+        azureSubscription: 'azure-rm-terraform'
+        scriptType: 'ps'
+        scriptLocation: 'inlineScript'
+        workingDirectory: $(workingDir)
+        inlineScript: |
+          # Need keys to destroy
+          $key = az storage account keys list --resource-group $(bkResourceGroup) --account-name $(bkStorageAccount) --query "[0].value" -o tsv
+          $env:ARM_ACCESS_KEY = $key
 
-#           terraform init -input=false -reconfigure
+          terraform init -input=false -reconfigure
           
-#           Write-Host "DESTROYING INFRASTRUCTURE..."
-#           terraform destroy -auto-approve -var "sql_password=$env:SQL_PASS"
-#       env:
-#         SQL_PASS: $(sql_password)
+          Write-Host "DESTROYING INFRASTRUCTURE..."
+          terraform destroy -auto-approve -var "sql_password=$env:SQL_PASS"
+      env:
+        SQL_PASS: $(sql_password)
