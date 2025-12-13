@@ -17,7 +17,7 @@ variables:
   acrLoginServer: 'devopsacr123.azurecr.io' 
   acrServiceConnection: 'acr-connection'    
   aksServiceConnection: 'aks-connection'            
-  # sonarServiceConnection: 'sonarqube-local-connection' # Temporarily unused
+  # sonarServiceConnection: 'sonarqube-local-connection' # Temporarily disabled
   
   # --- IMAGES ---
   backendImageName: 'backend-app'
@@ -26,7 +26,7 @@ variables:
   
   # --- APP CONFIG ---
   # RUN 1: Keep as localhost. 
-  # RUN 2: After deploying, copy the Backend IP from Azure Portal and paste it here.
+  # RUN 2: Update with Azure External IP.
   backendUrl: 'http://localhost:5000' 
 
 stages:
@@ -41,19 +41,25 @@ stages:
     - task: TerraformInstaller@0
       inputs:
         terraformVersion: $(tfVersion)
+
     - task: AzureCLI@2
+      displayName: "Init & Apply Terraform"
       inputs:
         azureSubscription: 'azure-rm-terraform'
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
         inlineScript: |
+          # 1. Fetch Key
           $key = az storage account keys list --resource-group $(bkResourceGroup) --account-name $(bkStorageAccount) --query "[0].value" -o tsv
-          Write-Host "##vso[task.setvariable variable=ARM_ACCESS_KEY;issecret=true]$key"
+          
+          # 2. Set Env Var for THIS session
+          $env:ARM_ACCESS_KEY = $key
+          
+          # 3. Run Terraform (Uses the new password if changed)
           terraform init -input=false -reconfigure
           terraform apply -auto-approve -var "sql_password=$env:SQL_PASS"
       env:
-        ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
         SQL_PASS: $(sql_password)
 
 # ----------------------------
@@ -85,7 +91,6 @@ stages:
 # ----------------------------
 - stage: BuildAndPush
   displayName: "Build Docker Images"
-  # dependsOn: CodeQuality # Changed dependency since we skipped Stage 2
   dependsOn: Terraform
   jobs:
   - job: BuildImages
@@ -126,7 +131,20 @@ stages:
       runOnce:
         deploy:
           steps:
+            # NEW STEP: Create the Secret in Kubernetes
             - task: KubernetesManifest@0
+              displayName: "Create DB Secret"
+              inputs:
+                action: 'createSecret'
+                kubernetesServiceConnection: $(aksServiceConnection)
+                namespace: 'default'
+                secretType: 'generic'
+                secretName: 'db-secret'
+                secretArguments: '--from-literal=password=$(sql_password)'
+
+            # EXISTING STEP: Deploy the Apps
+            - task: KubernetesManifest@0
+              displayName: "Apply Manifests"
               inputs:
                 action: 'deploy'
                 kubernetesServiceConnection: $(aksServiceConnection)
@@ -135,3 +153,5 @@ stages:
                   $(System.DefaultWorkingDirectory)/manifests/deployment.yml
                   $(System.DefaultWorkingDirectory)/manifests/service.yml
                 containers: |
+                  $(acrLoginServer)/$(backendImageName):$(tag)
+                  $(acrLoginServer)/$(frontendImageName):$(tag)
