@@ -111,24 +111,22 @@ stages:
   dependsOn: Terraform
   jobs:
   - job: SonarScan
-    displayName: "Run SonarQube Analysis"
+    displayName: "Run SonarScanner CLI"
     pool:
-      vmImage: 'windows-latest'   # or your agent pool
+      name: local-pool   # your Windows self-hosted agent
     steps:
-    - task: SonarQubePrepare@8
+    - task: PowerShell@2
+      displayName: "Run SonarScanner"
       inputs:
-        SonarQube: '$(sonarServiceConnection)'
-        scannerMode: 'CLI'
-        configMode: 'manual'
-        cliProjectKey: 'FullStackApp'
-        cliProjectName: 'FullStackApp'
-        extraProperties: |
-          sonar.sources=frontend,backend
-          sonar.exclusions=**/node_modules/**,**/build/**,**/dist/**
-    - task: SonarQubeAnalyze@8
-    - task: SonarQubePublish@8
-      inputs:
-        pollingTimeoutSec: '300'
+        targetType: 'inline'
+        script: |
+          sonar-scanner `
+            -Dsonar.projectKey=FullStackApp `
+            -Dsonar.projectName=FullStackApp `
+            -Dsonar.host.url=http://localhost:9000 `
+            -Dsonar.login=$env:sonarToken `
+            -Dsonar.sources=frontend,backend `
+            -Dsonar.exclusions=**/node_modules/**,**/build/**,**/dist/**
 
 # ----------------------------
 # STAGE 3: SECURITY (Snyk/Trivy FS)
