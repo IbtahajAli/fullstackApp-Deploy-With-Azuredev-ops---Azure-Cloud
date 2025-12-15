@@ -16,9 +16,8 @@ variables:
   # --- CONNECTIONS ---
   acrLoginServer: 'devopsacr123.azurecr.io' 
   acrServiceConnection: 'acr-connection'    
-  # Bypass aksServiceConnection in Deploy to verify credentials dynamically
+  # We bypass aksServiceConnection in Deploy stage to avoid stale credential errors
   aksServiceConnection: 'aks-connection'            
-  sonarServiceConnection: 'sonarqube-local-connection'
   
   # --- IMAGES ---
   backendImageName: 'backend-app'
@@ -26,12 +25,18 @@ variables:
   tag: '$(Build.BuildId)'
   
   # --- APP CONFIG ---
-  # ⚠️ REPLACE THIS with the Real IP from Azure Portal (e.g. http://20.55.12.11)
+  # ⚠️ ACTION REQUIRED: 
+  # 1. Run pipeline once to create Infrastructure.
+  # 2. Go to Azure Portal -> AKS -> Services -> backend-service.
+  # 3. Copy External IP.
+  # 4. Paste it here (e.g., http://20.123.45.67). 
+  # 5. Run pipeline again to fix Frontend connection.
   backendUrl: 'http://localhost:5000' 
 
   # --- SECURITY ---
-  # Ensure 'snykToken' is in your Variables
-  # snykToken: '...' 
+  # Ensure 'snykToken' and 'sonarToken' are defined in your Pipeline Library/Variables
+  # snykToken: '...'
+  # sonarToken: '...'
 
 stages:
 # ----------------------------
@@ -41,6 +46,7 @@ stages:
   displayName: "Infrastructure"
   jobs:
   - job: TerraformWorkflow
+    displayName: "Terraform Workflow"
     steps:
     - task: TerraformInstaller@0
       inputs:
@@ -54,6 +60,7 @@ stages:
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
         inlineScript: |
+          Write-Host "Checking Infrastructure Backend..."
           $rgExists = az group exists --name $(bkResourceGroup)
           if ($rgExists -eq "false") { az group create --name $(bkResourceGroup) --location $(bkLocation) }
 
@@ -103,188 +110,165 @@ stages:
       env:
         ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
 
-# ----------------------------
-# STAGE 2: SONARQUBE
-# ----------------------------
-- stage: SonarQube
-  displayName: "SonarQube Analysis"
-  dependsOn: Terraform
-  jobs:
-  - job: SonarScan
-    displayName: "Run SonarScanner CLI"
-    pool:
-      name: local-pool   # your self-hosted Windows agent pool
-    steps:
-    - task: PowerShell@2
-      displayName: "Run SonarScanner"
-      inputs:
-        targetType: 'inline'
-        script: |
-          cd D:\GitHub\fullstackApp-Deploy-With-Azuredev-ops---Azure-Cloud
-          & "C:\sonar-scanner\bin\sonar-scanner.bat" `
-            --define sonar.projectKey=FullStackApp `
-            --define sonar.projectName=FullStackApp `
-            --define sonar.host.url=http://localhost:9000 `
-            --define sonar.token=$(sonarToken) `
-            --define sonar.sources=frontend,backend `
-            --define sonar.exclusions=**/node_modules/**,**/build/**,**/dist/**
+# # ----------------------------
+# # STAGE 2: SONARQUBE (DOCKER METHOD)
+# # ----------------------------
+# - stage: SonarQube
+#   displayName: "SonarQube Analysis"
+#   dependsOn: Terraform
+#   condition: succeeded()
+#   jobs:
+#   - job: SonarScan
+#     displayName: "Run SonarScanner via Docker"
+#     steps:
+#     - script: |
+#         echo "Running SonarQube Scanner..."
+#         # We use Docker to avoid 'Task Missing' errors on local agent
+#         docker run --rm \
+#           -v "$(System.DefaultWorkingDirectory):/usr/src" \
+#           sonarsource/sonar-scanner-cli \
+#           -Dsonar.projectKey="FullStackApp" \
+#           -Dsonar.projectName="FullStackApp" \
+#           -Dsonar.host.url="http://host.docker.internal:9000" \
+#           -Dsonar.token="$(sonarToken)" \
+#           -Dsonar.sources="frontend,backend" \
+#           -Dsonar.exclusions="**/node_modules/**,**/build/**,**/dist/**"
+#       displayName: "Execute Sonar Scanner"
 
-# ----------------------------
-# STAGE 3: SECURITY (Snyk/Trivy FS)
-# ----------------------------
-- stage: SecurityCode
-  displayName: "Security: Code Scan"
-  dependsOn: SonarQube # Runs after SonarQube
-  jobs:
-  - job: SnykScan
-    displayName: "Snyk (Dependencies)"
-    continueOnError: true 
-    steps:
-    - script: |
-        npm install -g snyk
-        snyk auth $(snykToken)
-        snyk test backend/ --continue-on-failure
-      displayName: "Run Snyk Scan"
-      condition: ne(variables['snykToken'], '')
+# # ----------------------------
+# # STAGE 3: SECURITY (Snyk/Trivy FS)
+# # ----------------------------
+# - stage: SecurityCode
+#   displayName: "Security: Code Scan"
+#   dependsOn: SonarQube
+#   jobs:
+#   - job: SnykScan
+#     displayName: "Snyk (Dependencies)"
+#     continueOnError: true 
+#     steps:
+#     - script: |
+#         npm install -g snyk
+#         snyk auth $(snykToken)
+#         snyk test backend/ --continue-on-failure
+#       displayName: "Run Snyk Scan"
+#       condition: ne(variables['snykToken'], '')
 
-  - job: TrivyFS
-    displayName: "Trivy (Filesystem)"
-    continueOnError: true
-    steps:
-    - script: |
-        # SCANS CODE BEFORE BUILD
-        docker run --rm -v "$(System.DefaultWorkingDirectory):/app" aquasec/trivy fs /app --exit-code 0
-      displayName: "Run Trivy FS Scan"
+#   - job: TrivyFS
+#     displayName: "Trivy (Filesystem)"
+#     continueOnError: true
+#     steps:
+#     - script: |
+#         docker run --rm -v "$(System.DefaultWorkingDirectory):/app" aquasec/trivy fs /app --exit-code 0
+#       displayName: "Run Trivy FS Scan"
 
-# ----------------------------
-# STAGE 4: BUILD, IMAGE SCAN & PUSH
-# ----------------------------
-- stage: BuildAndPush
-  displayName: "Build & Scan Images"
-  dependsOn: SecurityCode
-  condition: succeeded()
-  jobs:
-  - job: BuildImages
-    steps:
-    # --- BACKEND ---
-    - task: Docker@2
-      displayName: "Build Backend"
-      inputs:
-        command: build
-        repository: $(backendImageName)
-        dockerfile: 'backend/Dockerfile'
-        containerRegistry: $(acrServiceConnection)
-        tags: |
-          $(tag)
-          latest
+# # ----------------------------
+# # STAGE 4: BUILD, IMAGE SCAN & PUSH
+# # ----------------------------
+# - stage: BuildAndPush
+#   displayName: "Build & Scan Images"
+#   dependsOn: SecurityCode
+#   condition: succeeded()
+#   jobs:
+#   - job: BuildImages
+#     steps:
+#     # --- BACKEND ---
+#     - task: Docker@2
+#       displayName: "Build Backend"
+#       inputs:
+#         command: build
+#         repository: $(backendImageName)
+#         dockerfile: 'backend/Dockerfile'
+#         containerRegistry: $(acrServiceConnection)
+#         tags: |
+#           $(tag)
+#           latest
 
-    # Trivy Image Scan (Backend)
-    - script: |
-        echo "Scanning Backend Image..."
-        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image $(acrLoginServer)/$(backendImageName):$(tag) --exit-code 0
-      displayName: "Trivy Scan: Backend Image"
-      continueOnError: true
+#     # Trivy Image Scan (Backend)
+#     - script: |
+#         echo "Scanning Backend Image..."
+#         docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image $(acrLoginServer)/$(backendImageName):$(tag) --exit-code 0
+#       displayName: "Trivy Scan: Backend Image"
+#       continueOnError: true
 
-    - task: Docker@2
-      displayName: "Push Backend"
-      inputs:
-        command: push
-        repository: $(backendImageName)
-        containerRegistry: $(acrServiceConnection)
-        tags: |
-          $(tag)
-          latest
+#     - task: Docker@2
+#       displayName: "Push Backend"
+#       inputs:
+#         command: push
+#         repository: $(backendImageName)
+#         containerRegistry: $(acrServiceConnection)
+#         tags: |
+#           $(tag)
+#           latest
 
-    # --- FRONTEND ---
-    - task: Docker@2
-      displayName: "Build Frontend"
-      inputs:
-        command: build
-        repository: $(frontendImageName)
-        dockerfile: 'frontend/Dockerfile'
-        containerRegistry: $(acrServiceConnection)
-        # ✅ Updated: frontend build now uses backendUrl variable
-        arguments: '--build-arg REACT_APP_API_URL=$(backendUrl)'
-        tags: |
-          $(tag)
-          latest
+#     # --- FRONTEND ---
+#     - task: Docker@2
+#       displayName: "Build Frontend"
+#       inputs:
+#         command: build
+#         repository: $(frontendImageName)
+#         dockerfile: 'frontend/Dockerfile'
+#         containerRegistry: $(acrServiceConnection)
+#         # INJECTS THE BACKEND URL INTO REACT APP
+#         arguments: '--build-arg REACT_APP_API_URL=$(backendUrl)'
+#         tags: |
+#           $(tag)
+#           latest
 
-    # Trivy Image Scan (Frontend)
-    - script: |
-        echo "Scanning Frontend Image..."
-        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image $(acrLoginServer)/$(frontendImageName):$(tag) --exit-code 0
-      displayName: "Trivy Scan: Frontend Image"
-      continueOnError: true
+#     # Trivy Image Scan (Frontend)
+#     - script: |
+#         echo "Scanning Frontend Image..."
+#         docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image $(acrLoginServer)/$(frontendImageName):$(tag) --exit-code 0
+#       displayName: "Trivy Scan: Frontend Image"
+#       continueOnError: true
 
-    - task: Docker@2
-      displayName: "Push Frontend"
-      inputs:
-        command: push
-        repository: $(frontendImageName)
-        containerRegistry: $(acrServiceConnection)
-        tags: |
-          $(tag)
-          latest
+#     - task: Docker@2
+#       displayName: "Push Frontend"
+#       inputs:
+#         command: push
+#         repository: $(frontendImageName)
+#         containerRegistry: $(acrServiceConnection)
+#         tags: |
+#           $(tag)
+#           latest
 
-# ----------------------------
-# STAGE 5: DEPLOY (AKS)
-# ----------------------------
-- stage: Deploy
-  displayName: "Deploy to AKS"
-  dependsOn: BuildAndPush
-  condition: succeeded()
-  jobs:
-  - deployment: DeployAKS
-    environment: 'production'
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-            - task: AzureCLI@2
-              displayName: "Deploy with Dynamic Credentials"
-              inputs:
-                azureSubscription: 'azure-rm-terraform'
-                scriptType: 'ps'
-                scriptLocation: 'inlineScript'
-                inlineScript: |
-                  # 1. Clean up old credentials
-                  if (Test-Path "$env:USERPROFILE\.kube\config") { Remove-Item "$env:USERPROFILE\.kube\config" -Force }
+# # ----------------------------
+# # STAGE 5: DEPLOY (AKS)
+# # ----------------------------
+# - stage: Deploy
+#   displayName: "Deploy to AKS"
+#   dependsOn: BuildAndPush
+#   condition: succeeded()
+#   jobs:
+#   - deployment: DeployAKS
+#     environment: 'production'
+#     strategy:
+#       runOnce:
+#         deploy:
+#           steps:
+#             - task: AzureCLI@2
+#               displayName: "Deploy with Dynamic Credentials"
+#               inputs:
+#                 azureSubscription: 'azure-rm-terraform'
+#                 scriptType: 'ps'
+#                 scriptLocation: 'inlineScript'
+#                 inlineScript: |
+#                   # 1. Clean up old credentials (Fixes "No Such Host" error)
+#                   if (Test-Path "$env:USERPROFILE\.kube\config") { Remove-Item "$env:USERPROFILE\.kube\config" -Force }
 
-                  # 2. Get Fresh Credentials
-                  az aks get-credentials --resource-group devops-rg --name devops-aks --overwrite-existing
+#                   # 2. Get Fresh Credentials
+#                   az aks get-credentials --resource-group devops-rg --name devops-aks --overwrite-existing
                   
-                  # 3. Create DB Secret
-                  kubectl create secret generic db-secret --from-literal=password=$(sql_password) --dry-run=client -o yaml | kubectl apply -f -
+#                   # 3. Create DB Secret
+#                   kubectl create secret generic db-secret --from-literal=password=$(sql_password) --dry-run=client -o yaml | kubectl apply -f -
 
-                  # 4. Update Manifests
-                  $manifests = "$(System.DefaultWorkingDirectory)/manifests/deployment.yml"
-                  (Get-Content $manifests) -replace 'backend-app:latest', "backend-app:$(tag)" -replace 'frontend-app:latest', "frontend-app:$(tag)" | Set-Content $manifests
+#                   # 4. Update Manifests (Inject Build Tag)
+#                   $manifests = "$(System.DefaultWorkingDirectory)/manifests/deployment.yml"
+#                   (Get-Content $manifests) -replace 'backend-app:latest', "backend-app:$(tag)" -replace 'frontend-app:latest', "frontend-app:$(tag)" | Set-Content $manifests
 
-                  # 5. Apply Manifests
-                  kubectl apply -f "$(System.DefaultWorkingDirectory)/manifests/deployment.yml"
-                  kubectl apply -f "$(System.DefaultWorkingDirectory)/manifests/service.yml"
-          # ✅ NEW: Capture backend IP dynamically and set backendUrl variable
-            - task: AzureCLI@2
-              displayName: "Capture backend public IP"
-              inputs:
-                azureSubscription: 'azure-rm-terraform'
-                scriptType: 'ps'
-                scriptLocation: 'inlineScript'
-                inlineScript: |
-                  $ip = kubectl get svc backend-service -o jsonpath="{.status.loadBalancer.ingress[0].ip}"
-                  if (-not $ip) { throw "Backend public IP not found yet." }
-                  $backendUrl = "http://$ip:5000"
-                  Write-Host "##vso[task.setvariable variable=backendUrl]$backendUrl"
+#                   # 5. Apply Manifests
+#                   kubectl apply -f "$(System.DefaultWorkingDirectory)/manifests/deployment.yml"
+#                   kubectl apply -f "$(System.DefaultWorkingDirectory)/manifests/service.yml"
 
-             # ✅ NEW: Restart frontend deployment to pick up rebuilt image
-            - task: AzureCLI@2
-              displayName: "Restart frontend deployment"
-              inputs:
-                azureSubscription: 'azure-rm-terraform'
-                scriptType: 'ps'
-                scriptLocation: 'inlineScript'
-                inlineScript: |
-                  kubectl rollout restart deployment frontend-deployment
 # # ----------------------------
 # # STAGE 6: DESTROY (Manual)
 # # ----------------------------
