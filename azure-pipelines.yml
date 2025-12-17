@@ -91,7 +91,9 @@ stages:
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
-        inlineScript: terraform plan -out=tfplan -var "sql_password=$env:SQL_PASS"
+        inlineScript: |
+          # Added -lock=false to bypass the stuck lock from the previous crash
+          terraform plan -out=tfplan -var "sql_password=$env:SQL_PASS" -lock=false
       env:
         ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
         SQL_PASS: $(sql_password)
