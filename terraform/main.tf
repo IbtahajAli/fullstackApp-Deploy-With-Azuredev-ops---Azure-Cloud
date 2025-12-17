@@ -6,14 +6,14 @@ resource "azurerm_resource_group" "rg" {
 
 # Azure Container Registry
 resource "azurerm_container_registry" "acr" {
-  name                = "devopsacr123" # Must be unique globally
+  name                = "devopsacr123" # Must be unique
   resource_group_name = azurerm_resource_group.rg.name
   location            = var.location
   sku                 = "Basic"
   admin_enabled       = true
 }
 
-# Azure Kubernetes Service (AKS)
+# Azure Kubernetes Service
 resource "azurerm_kubernetes_cluster" "aks" {
   name                = "devops-aks"
   resource_group_name = azurerm_resource_group.rg.name
@@ -31,7 +31,17 @@ resource "azurerm_kubernetes_cluster" "aks" {
   }
 }
 
-# Modern Azure SQL Server (mssql)
+# ---------------------------------------------------------
+# 🔥 FIX 1: Allow AKS to Pull Images from ACR
+# ---------------------------------------------------------
+resource "azurerm_role_assignment" "aks_acr_pull" {
+  principal_id                     = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
+  role_definition_name             = "AcrPull"
+  scope                            = azurerm_container_registry.acr.id
+  skip_service_principal_aad_check = true
+}
+
+# Modern Azure SQL Server
 resource "azurerm_mssql_server" "sqlserver" {
   name                         = "devops-sql-app-001" 
   resource_group_name          = azurerm_resource_group.rg.name
@@ -41,7 +51,7 @@ resource "azurerm_mssql_server" "sqlserver" {
   administrator_login_password = var.sql_password
 }
 
-# Modern Azure SQL Database (mssql)
+# Modern Azure SQL Database
 resource "azurerm_mssql_database" "sqldb" {
   name           = "devopsdb"
   server_id      = azurerm_mssql_server.sqlserver.id
@@ -50,12 +60,11 @@ resource "azurerm_mssql_database" "sqldb" {
 }
 
 # ---------------------------------------------------------
-# 🔥 CRITICAL FIX: Allow AKS to access SQL Database
+# 🔥 FIX 2: Allow AKS to Access SQL Database
 # ---------------------------------------------------------
 resource "azurerm_mssql_firewall_rule" "allow_azure_services" {
   name             = "AllowAzureServices"
   server_id        = azurerm_mssql_server.sqlserver.id
-  # Setting start and end IP to 0.0.0.0 enables the "Allow Azure Services" flag
   start_ip_address = "0.0.0.0"
   end_ip_address   = "0.0.0.0"
 }
