@@ -6,11 +6,11 @@ resource "azurerm_resource_group" "rg" {
 
 # Azure Container Registry
 resource "azurerm_container_registry" "acr" {
-  name                = "devopsacr123" # Must be unique
+  name                = "devopsacr123" 
   resource_group_name = azurerm_resource_group.rg.name
   location            = var.location
   sku                 = "Basic"
-  admin_enabled       = true
+  admin_enabled       = true # We will use this Admin account to connect
 }
 
 # Azure Kubernetes Service
@@ -31,16 +31,6 @@ resource "azurerm_kubernetes_cluster" "aks" {
   }
 }
 
-# ---------------------------------------------------------
-# 🔥 FIX 1: Allow AKS to Pull Images from ACR
-# ---------------------------------------------------------
-resource "azurerm_role_assignment" "aks_acr_pull" {
-  principal_id                     = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
-  role_definition_name             = "AcrPull"
-  scope                            = azurerm_container_registry.acr.id
-  skip_service_principal_aad_check = true
-}
-
 # Modern Azure SQL Server
 resource "azurerm_mssql_server" "sqlserver" {
   name                         = "devops-sql-app-001" 
@@ -59,9 +49,7 @@ resource "azurerm_mssql_database" "sqldb" {
   sku_name       = "S0"
 }
 
-# ---------------------------------------------------------
-# 🔥 FIX 2: Allow AKS to Access SQL Database
-# ---------------------------------------------------------
+# Firewall Rule (Allows AKS to talk to SQL)
 resource "azurerm_mssql_firewall_rule" "allow_azure_services" {
   name             = "AllowAzureServices"
   server_id        = azurerm_mssql_server.sqlserver.id
