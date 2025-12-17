@@ -28,7 +28,7 @@ variables:
   # 1. Get External IP of 'backend-service' from Azure Portal.
   # 2. Paste it below (e.g. 'http://20.55.12.11'). 
   # 3. DO NOT add :5000 (Your service.yml maps Port 80 -> 5000 automatically).
-  backendUrl: 'http://<YOUR_BACKEND_IP_HERE>' 
+  backendUrl: 'http://20.161.239.19'
 
   # --- SECURITY ---
   # Ensure 'snykToken' and 'sonarToken' are in your Pipeline Library/Variables
