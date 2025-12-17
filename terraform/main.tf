@@ -6,14 +6,14 @@ resource "azurerm_resource_group" "rg" {
 
 # Azure Container Registry
 resource "azurerm_container_registry" "acr" {
-  name                = "devopsacr123" # Must be unique
+  name                = "devopsacr123" # Must be unique globally
   resource_group_name = azurerm_resource_group.rg.name
   location            = var.location
   sku                 = "Basic"
   admin_enabled       = true
 }
 
-# Azure Kubernetes Service
+# Azure Kubernetes Service (AKS)
 resource "azurerm_kubernetes_cluster" "aks" {
   name                = "devops-aks"
   resource_group_name = azurerm_resource_group.rg.name
@@ -33,7 +33,6 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
 # Modern Azure SQL Server (mssql)
 resource "azurerm_mssql_server" "sqlserver" {
-  # CHANGED NAME TO ENSURE UNIQUENESS
   name                         = "devops-sql-app-001" 
   resource_group_name          = azurerm_resource_group.rg.name
   location                     = var.location
@@ -48,6 +47,17 @@ resource "azurerm_mssql_database" "sqldb" {
   server_id      = azurerm_mssql_server.sqlserver.id
   collation      = "SQL_Latin1_General_CP1_CI_AS"
   sku_name       = "S0"
+}
+
+# ---------------------------------------------------------
+# 🔥 CRITICAL FIX: Allow AKS to access SQL Database
+# ---------------------------------------------------------
+resource "azurerm_mssql_firewall_rule" "allow_azure_services" {
+  name             = "AllowAzureServices"
+  server_id        = azurerm_mssql_server.sqlserver.id
+  # Setting start and end IP to 0.0.0.0 enables the "Allow Azure Services" flag
+  start_ip_address = "0.0.0.0"
+  end_ip_address   = "0.0.0.0"
 }
 
 # Virtual Network
