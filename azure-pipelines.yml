@@ -277,31 +277,31 @@ stages:
                   kubectl apply -f "$(System.DefaultWorkingDirectory)/manifests/deployment.yml"
                   kubectl apply -f "$(System.DefaultWorkingDirectory)/manifests/service.yml"
 
-# ----------------------------
-# STAGE 6: DESTROY (Manual)
-# ----------------------------
-- stage: DestroyInfra
-  displayName: "Destroy Infrastructure"
-  dependsOn: Deploy
-  condition: eq(variables['Build.Reason'], 'Manual') 
-  jobs:
-  - job: TerraformDestroy
-    displayName: "Terraform Destroy"
-    steps:
-    - task: TerraformInstaller@0
-      inputs:
-        terraformVersion: $(tfVersion)
+# # ----------------------------
+# # STAGE 6: DESTROY (Manual)
+# # ----------------------------
+# - stage: DestroyInfra
+#   displayName: "Destroy Infrastructure"
+#   dependsOn: Deploy
+#   condition: eq(variables['Build.Reason'], 'Manual') 
+#   jobs:
+#   - job: TerraformDestroy
+#     displayName: "Terraform Destroy"
+#     steps:
+#     - task: TerraformInstaller@0
+#       inputs:
+#         terraformVersion: $(tfVersion)
 
-    - task: AzureCLI@2
-      displayName: "Destroy All"
-      inputs:
-        azureSubscription: 'azure-rm-terraform'
-        scriptType: 'ps'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          $key = az storage account keys list --resource-group $(bkResourceGroup) --account-name $(bkStorageAccount) --query "[0].value" -o tsv
-          $env:ARM_ACCESS_KEY = $key
-          terraform init -input=false -reconfigure
-          terraform destroy -auto-approve -var "sql_password=$env:SQL_PASS"
-      env:
-        SQL_PASS: $(sql_password)
+#     - task: AzureCLI@2
+#       displayName: "Destroy All"
+#       inputs:
+#         azureSubscription: 'azure-rm-terraform'
+#         scriptType: 'ps'
+#         scriptLocation: 'inlineScript'
+#         inlineScript: |
+#           $key = az storage account keys list --resource-group $(bkResourceGroup) --account-name $(bkStorageAccount) --query "[0].value" -o tsv
+#           $env:ARM_ACCESS_KEY = $key
+#           terraform init -input=false -reconfigure
+#           terraform destroy -auto-approve -var "sql_password=$env:SQL_PASS"
+#       env:
+#         SQL_PASS: $(sql_password)
