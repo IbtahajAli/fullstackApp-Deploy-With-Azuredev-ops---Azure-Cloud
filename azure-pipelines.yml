@@ -277,6 +277,49 @@ stages:
                   kubectl apply -f "$(System.DefaultWorkingDirectory)/manifests/deployment.yml"
                   kubectl apply -f "$(System.DefaultWorkingDirectory)/manifests/service.yml"
 
+# ----------------------------
+# STAGE 6: MONITORING (Prometheus & Grafana)
+# ----------------------------
+- stage: Monitoring
+  displayName: "Deploy Monitoring Stack"
+  dependsOn: Deploy
+  condition: succeeded()
+  jobs:
+  - job: DeployPrometheusGrafana
+    displayName: "Install Prometheus & Grafana"
+    steps:
+    - task: HelmInstaller@0
+      displayName: "Install Helm"
+      inputs:
+        helmVersion: 'latest'
+        installKubectl: true
+
+    - task: AzureCLI@2
+      displayName: "Deploy with Helm"
+      inputs:
+        azureSubscription: 'azure-rm-terraform'
+        scriptType: 'ps'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          # 1. Clean up old credentials
+          if (Test-Path "$env:USERPROFILE\.kube\config") { Remove-Item "$env:USERPROFILE\.kube\config" -Force }
+
+          # 2. Connect to AKS
+          az aks get-credentials --resource-group devops-rg --name devops-aks --overwrite-existing
+
+          # 3. Add the Prometheus Helm Repo
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+
+          # 4. Create Namespace
+          # We use "try/catch" or ignore error if it already exists
+          kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+          # 5. Install/Upgrade the Stack
+          # This installs Prometheus, Grafana, and Node Exporters
+          Write-Host "Installing Prometheus Stack..."
+          helm upgrade --install monitoring-stack prometheus-community/kube-prometheus-stack --namespace monitoring --wait
+
 # # ----------------------------
 # # STAGE 6: DESTROY (Manual)
 # # ----------------------------
