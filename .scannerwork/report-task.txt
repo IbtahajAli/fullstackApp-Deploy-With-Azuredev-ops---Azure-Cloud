@@ -2,5 +2,5 @@ projectKey=FullStackApp
 serverUrl=http://localhost:9000
 serverVersion=25.12.0.117093
 dashboardUrl=http://localhost:9000/dashboard?id=FullStackApp
-ceTaskId=36d0e70b-776b-46d5-971c-4da911ada401
-ceTaskUrl=http://localhost:9000/api/ce/task?id=36d0e70b-776b-46d5-971c-4da911ada401
+ceTaskId=26e67fbf-a7ad-4e5f-a0c6-320a9367733d
+ceTaskUrl=http://localhost:9000/api/ce/task?id=26e67fbf-a7ad-4e5f-a0c6-320a9367733d
