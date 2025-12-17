@@ -85,15 +85,19 @@ stages:
         ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
 
     - task: AzureCLI@2
-      displayName: "3. Terraform Plan"
+      displayName: "3. Terraform Plan (Unlock & Plan)"
       inputs:
         azureSubscription: 'azure-rm-terraform'
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
         workingDirectory: $(workingDir)
         inlineScript: |
-          # Added -lock=false to bypass the stuck lock from the previous crash
-          terraform plan -out=tfplan -var "sql_password=$env:SQL_PASS" -lock=false
+          # 1. Force Unlock the stuck state from the crash
+          # We use the ID found in your error log: 2f75b8f8-cdcc-490d-9676-c0bcab39ccf1
+          terraform force-unlock -force 2f75b8f8-cdcc-490d-9676-c0bcab39ccf1
+          
+          # 2. Run the Plan normally
+          terraform plan -out=tfplan -var "sql_password=$env:SQL_PASS"
       env:
         ARM_ACCESS_KEY: $(ARM_ACCESS_KEY)
         SQL_PASS: $(sql_password)
