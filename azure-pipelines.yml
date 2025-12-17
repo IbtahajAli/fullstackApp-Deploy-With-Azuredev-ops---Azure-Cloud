@@ -24,17 +24,14 @@ variables:
   frontendImageName: 'frontend-app'
   tag: '$(Build.BuildId)'
   
-  # --- APP CONFIG ---
-  # ⚠️ ACTION REQUIRED: 
-  # 1. Run pipeline once to create Infrastructure.
-  # 2. Go to Azure Portal -> AKS -> Services -> backend-service.
-  # 3. Copy External IP.
-  # 4. Paste it here (e.g., http://20.123.45.67). 
-  # 5. Run pipeline again to fix Frontend connection.
-  backendUrl: 'http://localhost:5000' 
+  # --- APP CONFIG (CRITICAL STEP) ---
+  # 1. Get External IP of 'backend-service' from Azure Portal.
+  # 2. Paste it below (e.g. 'http://20.55.12.11'). 
+  # 3. DO NOT add :5000 (Your service.yml maps Port 80 -> 5000 automatically).
+  backendUrl: 'http://<YOUR_BACKEND_IP_HERE>' 
 
   # --- SECURITY ---
-  # Ensure 'snykToken' and 'sonarToken' are defined in your Pipeline Library/Variables
+  # Ensure 'snykToken' and 'sonarToken' are in your Pipeline Library/Variables
   # snykToken: '...'
   # sonarToken: '...'
 
@@ -124,6 +121,7 @@ stages:
 #     - script: |
 #         echo "Running SonarQube Scanner..."
 #         # We use Docker to avoid 'Task Missing' errors on local agent
+#         # host.docker.internal allows Docker to see your Localhost SonarQube
 #         docker run --rm \
 #           -v "$(System.DefaultWorkingDirectory):/usr/src" \
 #           sonarsource/sonar-scanner-cli \
@@ -158,6 +156,7 @@ stages:
 #     continueOnError: true
 #     steps:
 #     - script: |
+#         # SCANS CODE BEFORE BUILD
 #         docker run --rm -v "$(System.DefaultWorkingDirectory):/app" aquasec/trivy fs /app --exit-code 0
 #       displayName: "Run Trivy FS Scan"
 
@@ -252,7 +251,7 @@ stages:
 #                 scriptType: 'ps'
 #                 scriptLocation: 'inlineScript'
 #                 inlineScript: |
-#                   # 1. Clean up old credentials (Fixes "No Such Host" error)
+#                   # 1. Clean up old credentials to fix "No Such Host" error
 #                   if (Test-Path "$env:USERPROFILE\.kube\config") { Remove-Item "$env:USERPROFILE\.kube\config" -Force }
 
 #                   # 2. Get Fresh Credentials
@@ -261,7 +260,7 @@ stages:
 #                   # 3. Create DB Secret
 #                   kubectl create secret generic db-secret --from-literal=password=$(sql_password) --dry-run=client -o yaml | kubectl apply -f -
 
-#                   # 4. Update Manifests (Inject Build Tag)
+#                   # 4. Update Manifests
 #                   $manifests = "$(System.DefaultWorkingDirectory)/manifests/deployment.yml"
 #                   (Get-Content $manifests) -replace 'backend-app:latest', "backend-app:$(tag)" -replace 'frontend-app:latest', "frontend-app:$(tag)" | Set-Content $manifests
 
@@ -278,6 +277,7 @@ stages:
 #   condition: eq(variables['Build.Reason'], 'Manual') 
 #   jobs:
 #   - job: TerraformDestroy
+#     displayName: "Terraform Destroy"
 #     steps:
 #     - task: TerraformInstaller@0
 #       inputs:
