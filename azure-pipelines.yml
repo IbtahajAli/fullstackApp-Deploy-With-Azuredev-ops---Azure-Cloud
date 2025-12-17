@@ -119,25 +119,28 @@ stages:
 - stage: SonarQube
   displayName: "SonarQube Analysis"
   dependsOn: Terraform
-  condition: succeeded()
+
   jobs:
-  - job: SonarScan
-    displayName: "Run SonarScanner via Docker"
-    steps:
-    - script: |
-        echo "Running SonarQube Scanner..."
-        # We use Docker to avoid 'Task Missing' errors on local agent
-        # host.docker.internal allows Docker to see your Localhost SonarQube
-        docker run --rm \
-          -v "$(System.DefaultWorkingDirectory):/usr/src" \
-          sonarsource/sonar-scanner-cli \
-          -Dsonar.projectKey="FullStackApp" \
-          -Dsonar.projectName="FullStackApp" \
-          -Dsonar.host.url="http://host.docker.internal:9000" \
-          -Dsonar.token="$(sonarToken)" \
-          -Dsonar.sources="frontend,backend" \
-          -Dsonar.exclusions="**/node_modules/**,**/build/**,**/dist/**"
-      displayName: "Execute Sonar Scanner"
+    - job: SonarScan
+      displayName: "Run SonarScanner CLI"
+      pool:
+        name: local-pool   # self-hosted Windows agent pool
+
+      steps:
+        - task: PowerShell@2
+          displayName: "Run SonarScanner"
+          inputs:
+            targetType: 'inline'
+            script: |
+              cd D:\GitHub\fullstackApp-Deploy-With-Azuredev-ops---Azure-Cloud
+
+              & "C:\sonar-scanner\bin\sonar-scanner.bat" `
+                --define sonar.projectKey=FullStackApp `
+                --define sonar.projectName=FullStackApp `
+                --define sonar.host.url=http://localhost:9000 `
+                --define sonar.token=$(sonarToken) `
+                --define sonar.sources=frontend,backend `
+                --define sonar.exclusions=/node_modules/,/build/,/dist/
 
 # ----------------------------
 # STAGE 3: SECURITY (Snyk/Trivy FS)
