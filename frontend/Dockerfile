@@ -17,7 +17,7 @@ ENV REACT_APP_API_URL=$REACT_APP_API_URL
 RUN npm run build
 
 # Stage 2: Serve
-FROM nginx:alpine
+FROM nginx:1.29.5-alpine3.23
 
 # Custom Nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
